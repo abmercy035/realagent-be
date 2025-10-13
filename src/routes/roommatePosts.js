@@ -3,6 +3,10 @@ const router = express.Router();
 const roommatePostController = require('../controllers/roommatePostController');
 const { auth } = require('../middleware/auth');
 
+
+// GET /api/roommate-posts - list roommate posts (public, paginated)
+router.get('/', roommatePostController.getRoommatePosts);
+
 // POST /api/roommate-posts - create roommate post (authenticated)
 router.post('/', auth, roommatePostController.createRoommatePost);
 
