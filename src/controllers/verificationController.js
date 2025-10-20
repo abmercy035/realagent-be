@@ -20,6 +20,7 @@ const {
 const submitVerification = async (req, res) => {
 	try {
 		const {
+			idName,
 			idDocumentUrl,
 			proofOfAddressUrl,
 			businessRegistrationUrl,
@@ -29,7 +30,7 @@ const submitVerification = async (req, res) => {
 		} = req.body;
 
 		// Validate required fields
-		if (!idDocumentUrl || !proofOfAddressUrl) {
+		if (!idDocumentUrl && !proofOfAddressUrl) {
 			return res.status(400).json({
 				status: 'error',
 				message: 'ID document and proof of address are required',
@@ -62,6 +63,7 @@ const submitVerification = async (req, res) => {
 
 			// Update with new documents
 			existingVerification.idDocument = {
+				name: idName || "student id",
 				url: idDocumentUrl,
 				uploadedAt: new Date(),
 			};
@@ -443,6 +445,7 @@ const uploadVerificationDocument = async (req, res) => {
 				message: 'File data and document type are required',
 			});
 		}
+
 
 		// Pass the agent ID (user ID) to the upload function
 		const result = await uploadAgentDocument(fileData, req.user._id);

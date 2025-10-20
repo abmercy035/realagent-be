@@ -92,7 +92,7 @@ const preventDuplicateVerification = async (req, res, next) => {
 				message: 'Authentication required',
 			});
 		}
-
+console.log(req.body)
 		// Check for existing approved verification
 		const existingVerification = await AgentVerification.findOne({
 			agentId: req.user._id,
@@ -116,7 +116,7 @@ const preventDuplicateVerification = async (req, res, next) => {
 		if (pendingVerification) {
 			return res.status(400).json({
 				status: 'error',
-				message: 'Verification request already pending review',
+				message: 'Sorry you have a pending Verification request review',
 				code: 'PENDING_VERIFICATION',
 				data: {
 					submittedAt: pendingVerification.createdAt,

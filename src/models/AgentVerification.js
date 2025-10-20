@@ -21,7 +21,12 @@ const agentVerificationSchema = new mongoose.Schema(
 		// ===========================
 		// VERIFICATION DOCUMENTS
 		// ===========================
+
 		idDocument: {
+			name: {
+				type: String,
+				default: "student id"
+			},
 			url: {
 				type: String,
 				required: [true, 'ID document is required'],
@@ -35,9 +40,12 @@ const agentVerificationSchema = new mongoose.Schema(
 			},
 		},
 		proofOfAddress: {
+			name: {
+				type: String,
+				default: "proof of address"
+			},
 			url: {
 				type: String,
-				required: [true, 'Proof of address is required'],
 			},
 			publicId: {
 				type: String,

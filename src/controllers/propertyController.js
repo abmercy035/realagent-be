@@ -260,7 +260,7 @@ exports.getPropertiesByAgent = async (req, res) => {
 			.select('-paidToView.unlockedBy -metrics.viewedBy');
 
 		const total = await Property.countDocuments({ agent: agentId, status: 'active' });
-
+		
 		res.status(200).json({
 			success: true,
 			data: properties,
