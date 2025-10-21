@@ -38,9 +38,15 @@ const uploadToCloudinary = async (filePath, options = {}) => {
 		// Validate file size with custom or default limit
 		validateFileSize(filePath, options.maxSizeMB || 2);
 
+		// Determine resource type explicitly if filePath is a data URI
+		let detectedResourceType = 'auto';
+		if (filePath && filePath.startsWith('data:')) {
+			if (filePath.startsWith('data:image')) detectedResourceType = 'image';
+			else if (filePath.startsWith('data:video')) detectedResourceType = 'video';
+		}
 		const defaultOptions = {
 			folder: 'realagent',
-			resource_type: 'auto',
+			resource_type: detectedResourceType,
 			...options,
 		};
 
@@ -75,10 +81,11 @@ const uploadAgentDocument = async (filePath, agentId) => {
 		// Validate file size (2MB limit)
 		validateFileSize(filePath, 2);
 
+		const agentDocResourceType = filePath && filePath.startsWith('data:image') ? 'image' : 'raw';
 		const result = await cloudinary.uploader.upload(filePath, {
 			upload_preset: 'ml_default', // Agent docs preset
 			folder: `agent/docs/${agentId}`, // Create agent-specific folder
-			resource_type: 'auto',
+			resource_type: agentDocResourceType,
 		});
 
 		return {
@@ -110,8 +117,10 @@ const uploadPropertyMedia = async (filePath, agentId, propertyId) => {
 
 		// Determine file type and set size limit
 		let maxSizeMB = 3;
+		let isVideo = false;
 		if (filePath && filePath.startsWith('data:video')) {
-			maxSizeMB = 15;
+			maxSizeMB = 30; // Allow up to 30MB for videos
+			isVideo = true;
 		}
 		validateFileSize(filePath, maxSizeMB);
 
@@ -120,12 +129,38 @@ const uploadPropertyMedia = async (filePath, agentId, propertyId) => {
 			? `agent/properties/${agentId}/${propertyId}`
 			: `agent/properties/${agentId}`;
 
-		const result = await cloudinary.uploader.upload(filePath, {
-			upload_preset: 'blkd1c3b', // Agent medias preset
+		// Use eager transformation for video compression/optimization
+		const uploadOptions = {
+			upload_preset: 'blkd1c3b',
 			folder: folder,
-			resource_type: 'auto',
-		});
+			resource_type: isVideo ? 'video' : 'image', // explicitly set to avoid auto-detection
+		};
+		if (isVideo) {
+			uploadOptions.eager = [
+				{
+					width: 720,
+					crop: 'scale',
+					quality: 'auto:eco',
+					video_codec: 'auto',
+					fps: '24',
+					format: 'mp4',
+				},
+			];
+		}
 
+		const result = await cloudinary.uploader.upload(filePath, uploadOptions);
+
+		// For videos, return the eager[0] url (compressed/optimized)
+		if (isVideo && result.eager && result.eager[0]) {
+			return {
+				url: result.eager[0].secure_url,
+				publicId: result.public_id,
+				format: result.format,
+				width: result.eager[0].width,
+				height: result.eager[0].height,
+			};
+		}
+		// For images or fallback
 		return {
 			url: result.secure_url,
 			publicId: result.public_id,
@@ -176,10 +211,11 @@ const uploadRoommatePostMedia = async (filePath, userId, postId) => {
 			? `user/roommate-posts/${userId}/${postId}`
 			: `user/roommate-posts/${userId}`;
 
+		const roommateResourceType = filePath && filePath.startsWith('data:image') ? 'image' : 'video';
 		const result = await cloudinary.uploader.upload(filePath, {
 			upload_preset: 'xlqs0c3b', // Roommate post media preset
 			folder: folder,
-			resource_type: 'auto',
+			resource_type: roommateResourceType,
 		});
 
 		return {
@@ -220,7 +256,7 @@ const uploadUserProfileImage = async (filePath, userId, type = 'avatar') => {
 			folder: folder,
 			resource_type: 'image', // Force image type only
 			transformation: [
-				{ quality: 'auto', fetch_format: 'auto' } // Auto optimize
+				{ quality: 'auto', fetch_format: 'png' } // Auto optimize
 			]
 		});
 
@@ -237,6 +273,26 @@ const uploadUserProfileImage = async (filePath, userId, type = 'avatar') => {
 	}
 };
 
+
+/**
+	* Get a transformed Cloudinary video URL for optimized delivery
+	* @param {string} publicId - The public_id of the video (e.g. 'folder/video.mp4')
+	* @returns {string} - The transformed video URL
+	*/
+function getCloudinaryVideoUrl(publicId) {
+	return cloudinary.url(publicId, {
+		resource_type: 'video',
+		transformation: [
+			{ width: 720, crop: 'scale' },
+			{ quality: 'auto:eco' },
+			{ video_codec: 'auto' },
+			{ fps: '24' },
+		],
+		format: 'mp4',
+		secure: true,
+	});
+}
+
 module.exports = {
 	cloudinary,
 	uploadToCloudinary,
@@ -245,4 +301,5 @@ module.exports = {
 	uploadRoommatePostMedia,
 	uploadUserProfileImage,
 	deleteFromCloudinary,
+	getCloudinaryVideoUrl,
 };
