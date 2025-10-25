@@ -13,6 +13,8 @@ const bookmarkRoutes = require('./bookmarks');
 const ratingRoutes = require('./ratings');
 const roommatePostRoutes = require('./roommatePosts');
 const feeRoutes = require('./fees');
+const uploadsRoutes = require('./uploads');
+const viewingRequestsRoutes = require('./viewingRequests');
 // const paymentRoutes = require('./payments');
 
 // Mount routes
@@ -29,6 +31,8 @@ router.use('/bookmarks', bookmarkRoutes); // User bookmarks
 router.use('/ratings', ratingRoutes); // Agent ratings and reviews
 router.use('/roommate-posts', roommatePostRoutes); // Roommate post creation
 router.use('/fees', feeRoutes); // Listing and roommate post fees
+router.use('/uploads', uploadsRoutes); // Media uploads (images/videos)
+router.use('/viewing-requests', viewingRequestsRoutes); // Viewing / inquiry requests
 // router.use('/payments', paymentRoutes);
 
 // Health check endpoint

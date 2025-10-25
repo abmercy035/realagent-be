@@ -13,39 +13,45 @@ exports.createProperty = async (req, res) => {
 			category,
 			location,
 			pricing,
+			listType,
 			amenities,
-			bedrooms,
-			bathrooms,
+			details,
 			media,
-			features,
 			status = 'active',
 		} = req.body;
 
-		// Handle Cloudinary image/video upload
+		// Expect media to be already uploaded via /api/uploads/property-media.
+		// Accept arrays of objects: { url, publicId?, caption? }
 		let images = [];
 		let videos = [];
-		// Limit to max 4 images and 1 video
+
+		// Enforce limits and validate that client sent Cloudinary URLs (not data URIs)
 		const imageFiles = Array.isArray(media?.images) ? media.images.slice(0, 4) : [];
 		const videoFiles = Array.isArray(media?.videos) ? media.videos.slice(0, 1) : [];
 
-		// Upload images
+		// If client sent data URIs (base64) we reject and ask them to use the uploads endpoint
 		for (const img of imageFiles) {
-			if (img.url && img.url.startsWith('data:')) {
-				const uploadRes = await cloudinary.uploadPropertyMedia(img.url, agentId);
-				images.push({ url: uploadRes.url, publicId: uploadRes.publicId, caption: img.caption });
-			} else {
-				images.push(img);
+			if (img?.url && typeof img.url === 'string' && img.url.startsWith('data:')) {
+				return res.status(400).json({ success: false, error: 'Please upload media using the /api/uploads/property-media endpoint (send files as multipart/form-data).' });
 			}
+			if (img && img.url) images.push({ url: img.url, publicId: img.publicId || null, caption: img.caption || null });
 		}
 
-		// Upload video
 		for (const vid of videoFiles) {
-			if (vid.url && vid.url.startsWith('data:')) {
-				const uploadRes = await cloudinary.uploadPropertyMedia(vid.url, agentId);
-				videos.push({ url: uploadRes.url, publicId: uploadRes.publicId, caption: vid.caption });
-			} else {
-				videos.push(vid);
+			if (vid?.url && typeof vid.url === 'string' && vid.url.startsWith('data:')) {
+				return res.status(400).json({ success: false, error: 'Please upload media using the /api/uploads/property-media endpoint (send files as multipart/form-data).' });
 			}
+			if (vid && vid.url) videos.push({ url: vid.url, publicId: vid.publicId || null, caption: vid.caption || null });
+		}
+
+		// Server-side validation: description length and minimum media count
+		if (!description || String(description).trim().length < 50) {
+			return res.status(400).json({ success: false, error: 'Description must be at least 50 characters long.' });
+		}
+
+		const totalMediaCount = (Array.isArray(media?.images) ? media.images.length : 0) + (Array.isArray(media?.videos) ? media.videos.length : 0);
+		if (totalMediaCount < 2) {
+			return res.status(400).json({ success: false, error: 'Please provide at least 2 media items (images/videos).' });
 		}
 
 		// Create property
@@ -56,13 +62,10 @@ exports.createProperty = async (req, res) => {
 			category,
 			location,
 			pricing,
+			listType,
 			amenities,
-			details: {
-				bedrooms,
-				bathrooms,
-			},
+			details,
 			media: { images, videos },
-			features,
 			agent: agentId,
 			status,
 		});
@@ -70,6 +73,27 @@ exports.createProperty = async (req, res) => {
 		res.status(201).json({ success: true, data: property });
 	} catch (error) {
 		console.error('Create property error:', error);
+		// If we have uploaded media in the request body, attempt cleanup to avoid orphaned cloud files
+		try {
+			const mediaForCleanup = req.body?.media;
+			const imageFiles = Array.isArray(mediaForCleanup?.images) ? mediaForCleanup.images : [];
+			const videoFiles = Array.isArray(mediaForCleanup?.videos) ? mediaForCleanup.videos : [];
+			const deletions = [];
+			for (const img of imageFiles) {
+				if (img?.publicId) {
+					deletions.push(cloudinary.deleteFromCloudinary(img.publicId).catch((e) => console.error('Failed to delete image on create failure', e)));
+				}
+			}
+			for (const vid of videoFiles) {
+				if (vid?.publicId) {
+					deletions.push(cloudinary.deleteFromCloudinary(vid.publicId).catch((e) => console.error('Failed to delete video on create failure', e)));
+				}
+			}
+			if (deletions.length > 0) await Promise.allSettled(deletions);
+		} catch (cleanupError) {
+			console.error('Media cleanup error after create failure:', cleanupError);
+		}
+
 		// Mongoose validation error
 		if (error.name === 'ValidationError' && error.errors) {
 			const errors = {};
@@ -438,35 +462,71 @@ exports.getPropertyStats = async (req, res) => {
 
 		const query = isAdmin ? {} : { agent: userId };
 
+		// Totals
 		const total = await Property.countDocuments({ ...query, status: { $ne: 'deleted' } });
 		const active = await Property.countDocuments({ ...query, status: 'active' });
-		const vacant = await Property.countDocuments({
-			...query,
-			status: 'active',
-			'vacancy.status': 'vacant',
-		});
-		const occupied = await Property.countDocuments({
-			...query,
-			status: 'active',
-			'vacancy.status': 'occupied',
-		});
-
-		// Total views
+console.log({total, active})
+		// Total views (sum across properties)
 		const viewsResult = await Property.aggregate([
 			{ $match: query },
 			{ $group: { _id: null, totalViews: { $sum: '$metrics.views' } } },
 		]);
+		const totalViews = viewsResult[0]?.totalViews || 0;
+
+		// Views by month (based on metrics.viewedBy.viewedAt timestamps)
+		const viewsByMonth = await Property.aggregate([
+			{ $match: query },
+			{ $unwind: { path: '$metrics.viewedBy', preserveNullAndEmptyArrays: true } },
+			{
+				$project: {
+					month: {
+						$dateToString: { format: '%Y-%m', date: '$metrics.viewedBy.viewedAt' },
+					},
+					viewCount: { $ifNull: ['$metrics.viewedBy.viewCount', 0] },
+				},
+			},
+			{ $group: { _id: '$month', views: { $sum: '$viewCount' } } },
+			{ $sort: { _id: 1 } },
+		]);
+
+		// Map aggregation result to a stable shape
+		const viewsMonthMetrics = (viewsByMonth || [])
+			.filter((r) => r._id) // filter out null months
+			.map((r) => ({ month: r._id, views: r.views }));
+
+		// Inquiries / viewing requests: try to use a ViewingRequest model if available
+		let totalInquiries = 0;
+		let pendingInquiries = 0;
+		try {
+			// Require lazily; if the model/file doesn't exist this will throw and we fall back to zeros
+			// eslint-disable-next-line global-require, import/no-dynamic-require
+			const ViewingRequest = require('../models/ViewingRequest');
+			const inquiryQuery = isAdmin ? {} : { agent: userId };
+			totalInquiries = await ViewingRequest.countDocuments(inquiryQuery);
+			pendingInquiries = await ViewingRequest.countDocuments({ ...inquiryQuery, status: 'pending' });
+		} catch (e) {
+			// No viewing requests model in this repo — return zeros (frontend uses mock data)
+			totalInquiries = 0;
+			pendingInquiries = 0;
+		}
 
 		res.status(200).json({
 			success: true,
 			data: {
-				total,
-				active,
-				vacant,
-				occupied,
-				totalViews: viewsResult[0]?.totalViews || 0,
+			totals: {
+				totalProperties: total,
+				activeProperties: active,
 			},
-		});
+			views: {
+				totalViews,
+				viewsByMonth: viewsMonthMetrics,
+			},
+			inquiries: {
+				totalInquiries,
+				pendingInquiries,
+			},
+		},
+	});
 	} catch (error) {
 		console.error('Get property stats error:', error);
 		res.status(500).json({

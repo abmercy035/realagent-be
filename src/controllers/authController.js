@@ -106,6 +106,7 @@ const login = async (req, res) => {
 
 		// Find user with password field
 		const user = await User.findByEmail(email.toLowerCase());
+		console.log(user)
 		if (!user) {
 			return res.status(401).json({
 				status: 'error',

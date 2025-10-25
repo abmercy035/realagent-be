@@ -52,6 +52,7 @@ const propertySchema = new mongoose.Schema(
 			required: [true, 'Property type is required'],
 			index: true,
 		},
+
 		category: {
 			type: String,
 			enum: {
@@ -59,6 +60,14 @@ const propertySchema = new mongoose.Schema(
 				message: 'Invalid category',
 			},
 			default: 'any',
+		},
+		listType: {
+			type: String,
+			enum: {
+				values: ['rent', 'sale'],
+				message: 'Invalid list type',
+			},
+			default: 'rent',
 		},
 
 		// ===========================
@@ -127,19 +136,13 @@ const propertySchema = new mongoose.Schema(
 		// ===========================
 		details: {
 			bedrooms: {
-				type: Number,
-				min: 0,
-				default: 1,
+				type: String,
 			},
 			bathrooms: {
-				type: Number,
-				min: 0,
-				default: 1,
+				type: String,
 			},
 			toilets: {
-				type: Number,
-				min: 0,
-				default: 1,
+				type: String,
 			},
 			furnishingStatus: {
 				type: String,
@@ -147,16 +150,13 @@ const propertySchema = new mongoose.Schema(
 				default: 'unfurnished',
 			},
 			floorNumber: {
-				type: Number,
-				min: 0,
+				type: String,
 			},
 			totalFloors: {
-				type: Number,
-				min: 1,
+				type: String,
 			},
 			squareMeters: {
-				type: Number,
-				min: 0,
+				type: String,
 			},
 		},
 
@@ -168,6 +168,8 @@ const propertySchema = new mongoose.Schema(
 				type: String,
 				enum: [
 					'electricity',
+					"swimming-pool",
+					"furnished",
 					'water',
 					'wifi',
 					'parking',
@@ -427,6 +429,44 @@ const propertySchema = new mongoose.Schema(
 	}
 );
 
+// Pre-save hook: validate media shape and ensure url/publicId are present when provided
+propertySchema.pre('validate', function (next) {
+	try {
+		const doc = this;
+		if (doc.media) {
+			// images
+			if (Array.isArray(doc.media.images)) {
+				doc.media.images = doc.media.images.map((img) => {
+					if (!img || !img.url) throw new Error('Each image must include a url');
+					// publicId is required by schema; allow nulls but normalize to string if present
+					if (!img.publicId) img.publicId = null;
+					if (typeof img.caption === 'undefined') img.caption = null;
+					if (typeof img.isPrimary === 'undefined') img.isPrimary = false;
+					return img;
+				});
+			} else {
+				doc.media.images = [];
+			}
+
+			// videos
+			if (Array.isArray(doc.media.videos)) {
+				doc.media.videos = doc.media.videos.map((v) => {
+					if (!v || !v.url) throw new Error('Each video must include a url');
+					if (!v.publicId) v.publicId = null;
+					if (typeof v.thumbnail === 'undefined') v.thumbnail = null;
+					if (typeof v.duration === 'undefined') v.duration = null;
+					return v;
+				});
+			} else {
+				doc.media.videos = [];
+			}
+		}
+		next();
+	} catch (err) {
+		next(err);
+	}
+});
+
 // ===========================
 // INDEXES FOR SEARCH & PERFORMANCE
 // ===========================
@@ -441,8 +481,10 @@ propertySchema.index({ createdAt: -1 });
 
 // Get primary image
 propertySchema.virtual('primaryImage').get(function () {
-	const primary = this.media.images.find((img) => img.isPrimary);
-	return primary || this.media.images[0] || null;
+	// Safely handle missing media/images to avoid runtime errors when documents are partially populated
+	const images = this.media && Array.isArray(this.media.images) ? this.media.images : [];
+	const primary = images.find((img) => img && img.isPrimary);
+	return primary || images[0] || null;
 });
 
 // Check if property is available

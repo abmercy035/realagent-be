@@ -198,6 +198,94 @@ Best regards,
 RealAgent Support Team`
 	},
 
+	// Viewing request notifications
+	viewingRequestCreatedAgent: {
+		title: 'Action Required: New Inspection Request for {{propertyTitle}}',
+		body: `Dear {{recipientName}},
+
+This notification confirms that a request for a property inspection has been submitted and is awaiting your review and approval.
+
+### 🗓️ Request Summary
+
+| Detail        | Information       |
+| :-----| :-----|
+| **Property**  | {{propertyTitle}} |
+| **Requester** | {{requesterName}} |
+| **Date**      | {{requestedDate}} |
+| **Time**      | {{requestedTime}} |
+
+**Requester's Note:**
+
+> {{message}}
+
+---
+
+### 🔑 Manage Your Request
+
+Please log in to your dashboard to review the details and take the necessary action (Approve, Decline, or Suggest New Time).
+
+**Go to Dashboard:** {{dashboardLink}}
+
+Your prompt attention to this request is appreciated.
+
+Best regards,
+RealAgent Team
+`
+	},
+	// Viewing request notifications
+	viewingRequestCreatedUser: {
+		title: '✅ Your Inspection Request for {{propertyTitle}} Has Been Sent',
+		body: `Subject: 
+
+Hi {{requesterName}},
+
+Thank you for requesting an inspection for the property: **{{propertyTitle}}**.
+
+Your request has been successfully submitted and sent to the property manager for review.
+
+### 🗓️ Requested Details
+
+We have recorded your preferred inspection time as:
+
+* **Date:** {{requestedDate}}
+* **Time:** {{requestedTime}}
+
+**Your Message:**
+> {{message}}
+
+---
+
+### 🔑 What Happens Next?
+
+The **RealAgent Team** will review this request and either **confirm** the appointment or **propose an alternative time**.
+
+You will receive another email notification soon with an update.
+
+In the meantime, you can track the status of your request on your dashboard:
+
+**View Status:** {{dashboardLink}}
+
+Best regards,
+RealAgent Team
+`
+	},
+
+	viewingRequestStatusUpdate: {
+		title: 'Viewing request {{status}} - {{propertyTitle}}',
+		body: `Hi {{recipientName}},
+
+The viewing request for the property "{{propertyTitle}}" has been updated.
+
+Status: {{status}}
+Date: {{requestedDate}}
+Time: {{requestedTime}}
+
+You can view the request here: {{dashboardLink}}
+
+Best regards,
+RealAgent Team`
+	},
+
 	fraudReport: {
 		title: '🚨 NEW FRAUD REPORT [{{severity}}] - {{fraudType}}',
 		body: `⚠️ A new fraud report has been submitted and requires immediate attention.
@@ -377,6 +465,25 @@ const sendContactConfirmationEmail = async (email, name) => {
 };
 
 /**
+ * Send viewing request created notification (to agent or requester)
+ * @param {string} email
+ * @param {object} payload - { recipientName, requesterName, propertyTitle, requestedDate, requestedTime, message, dashboardLink }
+ */
+const sendViewingRequestCreatedEmail = async (email, payload = {}, type = "user") => {
+	return type === "user" ?  await sendMail(email, payload, 'viewingRequestCreatedUser'):
+	 await sendMail(email, payload, 'viewingRequestCreatedAgent');
+};
+
+/**
+ * Send viewing request status update notification
+ * @param {string} email
+ * @param {object} payload - { recipientName, propertyTitle, requestedDate, requestedTime, status, dashboardLink }
+ */
+const sendViewingRequestStatusEmail = async (email, payload = {}) => {
+	return await sendMail(email, payload, 'viewingRequestStatusUpdate');
+};
+
+/**
 	* Send fraud report notification to admin
 	*/
 const sendFraudReportEmail = async (adminEmail, { reportId, fraudType, description, severity, targetUserEmail, evidenceCount, reporterEmail }) => {
@@ -413,6 +520,8 @@ module.exports = {
 	sendVerificationRejectedEmail,
 	sendVerificationSubmittedEmail,
 	sendContactFormEmail,
+	sendViewingRequestStatusEmail,
+	sendViewingRequestCreatedEmail,
 	sendContactConfirmationEmail,
 	sendFraudReportEmail,
 	sendFraudReportConfirmationEmail,
