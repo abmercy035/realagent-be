@@ -257,6 +257,7 @@ userSchema.methods.toPublicProfile = function () {
 		email: this.email,
 		phone: this.phone,
 		school: this.school,
+		location: this.location,
 		role: this.role,
 		verified: this.verified,
 		status: this.status,

@@ -6,7 +6,7 @@
 const { isInValiData, isNotValidata } = require('validata-jsts');
 const User = require('../models/User');
 const { generateToken } = require('../utils/jwt');
-const { validateRegistration, validateLogin, sanitizeInput } = require('../utils/validators');
+const { validateRegistration, validateLogin, sanitizeInput, isValidPhone } = require('../utils/validators');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/email');
 
 /**
@@ -208,6 +208,67 @@ const getUserById = async (req, res) => {
 };
 
 /**
+	* @route   PUT /api/auth/me
+	* @desc    Update current user's profile (name, phone, school)
+	* @access  Private
+	*/
+const updateProfile = async (req, res) => {
+	try {
+		const userId = req.user && req.user._id;
+		if (!userId) {
+			return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+		}
+
+		const allowedFields = ['name', 'phone', 'school'];
+		const updates = {};
+
+		// Pick only allowed fields and sanitize
+		for (const key of allowedFields) {
+			if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+				const val = req.body[key];
+				updates[key] = typeof val === 'string' ? sanitizeInput(val) : val;
+			}
+		}
+
+		// Basic validation
+		if (updates.name) {
+			if (updates.name.length < 2) {
+				return res.status(400).json({ status: 'error', message: 'Name must be at least 2 characters' });
+			}
+			if (updates.name.length > 100) {
+				return res.status(400).json({ status: 'error', message: 'Name cannot exceed 100 characters' });
+			}
+		}
+
+		if (updates.phone && !isValidPhone(updates.phone)) {
+			return res.status(400).json({ status: 'error', message: 'Invalid phone number format' });
+		}
+
+		if (updates.school && updates.school.length > 100) {
+			return res.status(400).json({ status: 'error', message: 'School name cannot exceed 100 characters' });
+		}
+
+		// Prevent changing email, role or password via this route
+		// Apply updates
+		const user = await User.findById(userId);
+		if (!user) {
+			return res.status(404).json({ status: 'error', message: 'User not found' });
+		}
+
+		for (const [k, v] of Object.entries(updates)) {
+			user[k] = v;
+		}
+
+		await user.save();
+
+		res.status(200).json({ status: 'success', message: 'Profile updated', data: { user: user.toPublicProfile() } });
+	} catch (error) {
+		console.error('Update profile error:', error);
+		res.status(500).json({ status: 'error', message: 'Failed to update profile', error: error.message });
+	}
+};
+
+/**
 	* @route   POST /api/auth/logout
 	* @desc    Logout user (client-side token removal)
 	* @access  Private
@@ -403,4 +464,5 @@ module.exports = {
 	getUserById,
 	requestPasswordReset,
 	resetPassword,
+	updateProfile,
 };

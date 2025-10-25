@@ -17,6 +17,7 @@ router.post('/reset-password', authController.resetPassword);
 
 // Protected routes (require authentication)
 router.get('/me', auth, authController.getMe);
+router.put('/me', auth, authController.updateProfile);
 router.post('/logout', auth, authController.logout);
 
 // Public: Get user by ID

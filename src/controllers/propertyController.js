@@ -1,3 +1,8 @@
+const Property = require('../models/Property');
+			const ViewingRequest = require('../models/ViewingRequest');
+const User = require('../models/User');
+const cloudinary = require('../config/cloudinary');
+
 /**
 	* @route   POST /api/properties
 	* @desc    Create new property listing (agent only)
@@ -110,9 +115,6 @@ exports.createProperty = async (req, res) => {
 	* Handles all property-related operations
 	*/
 
-const Property = require('../models/Property');
-const User = require('../models/User');
-const cloudinary = require('../config/cloudinary');
 
 /**
 	* @route   GET /api/properties
@@ -498,9 +500,7 @@ console.log({total, active})
 		let totalInquiries = 0;
 		let pendingInquiries = 0;
 		try {
-			// Require lazily; if the model/file doesn't exist this will throw and we fall back to zeros
-			// eslint-disable-next-line global-require, import/no-dynamic-require
-			const ViewingRequest = require('../models/ViewingRequest');
+
 			const inquiryQuery = isAdmin ? {} : { agent: userId };
 			totalInquiries = await ViewingRequest.countDocuments(inquiryQuery);
 			pendingInquiries = await ViewingRequest.countDocuments({ ...inquiryQuery, status: 'pending' });
