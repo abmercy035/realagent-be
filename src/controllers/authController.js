@@ -16,7 +16,9 @@ const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/emai
 	*/
 const register = async (req, res) => {
 	try {
-		const { school, name, email, password, phone, role } = req.body;
+		const { school, name, email, password, phone, role, location, matricNumber } = req.body;
+
+		console.log(req.body)
 
 		const validationErr = isInValiData(['school-string-max40', 'name-string-min3',
 			"email-email", "password-pwd", "phone-string-min9"], req.body)
@@ -45,8 +47,10 @@ const register = async (req, res) => {
 			name: sanitizedName,
 			email: email.toLowerCase(),
 			password,
-			phone: phone || '000000000',
+			phone: phone || '0000000000',
 			role: role || 'user',
+			location,
+			matricNumber
 		});
 
 		// Generate verification token

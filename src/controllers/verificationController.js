@@ -446,7 +446,17 @@ const uploadVerificationDocument = async (req, res) => {
 			});
 		}
 
+		const existingVerification = await AgentVerification.findOne({
+			agentId: req.user._id,
+		}).sort({ createdAt: -1 });
 
+		if (existingVerification?.status === 'pending') {
+			return res.status(400).json({
+				status: 'error',
+				message: 'Verification request already pending',
+				code: 'PENDING_VERIFICATION',
+			});
+		}
 		// Pass the agent ID (user ID) to the upload function
 		const result = await uploadAgentDocument(fileData, req.user._id);
 

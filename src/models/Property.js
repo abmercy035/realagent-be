@@ -41,6 +41,7 @@ const propertySchema = new mongoose.Schema(
 					'3-bed-flat',         // 3 bedroom and parlour flat
 					'duplex',
 					'shared-apartment',
+					'apartment',
 					'hostel',
 					'house',
 					'studio',
@@ -489,7 +490,8 @@ propertySchema.virtual('primaryImage').get(function () {
 
 // Check if property is available
 propertySchema.virtual('isAvailable').get(function () {
-	return this.vacancy.status === 'vacant' && this.status === 'active';
+	return true;
+	// return this.vacancy.status === 'vacant' && this.status === 'active';
 });
 
 // ===========================

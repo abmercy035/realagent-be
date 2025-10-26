@@ -43,6 +43,13 @@ const createViewingRequest = async (req, res) => {
 
 		await viewing.save();
 
+		// populate property on the saved viewing (best-effort)
+		try {
+			await viewing.populate('propertyId', 'title location');
+		} catch (e) {
+			console.error('Failed to populate property on viewing', e);
+		}
+
 		// fetch property title for status-update notifications
 		let notifProperty = null;
 		try {
@@ -97,7 +104,14 @@ const createViewingRequest = async (req, res) => {
 			console.error('Notification error (non-fatal):', notifyErr);
 		}
 
-		return res.status(201).json({ status: 'success', data: viewing });
+		// Return viewing with property field (rename propertyId -> property)
+		let viewingObj = viewing.toObject ? viewing.toObject() : viewing;
+		if (viewingObj.propertyId) {
+			viewingObj.property = viewingObj.propertyId;
+			delete viewingObj.propertyId;
+		}
+
+		return res.status(201).json({ status: 'success', data: viewingObj });
 	} catch (err) {
 		console.error('Error creating viewing request:', err);
 		return res.status(500).json({ status: 'error', message: 'Internal server error' });
@@ -133,12 +147,22 @@ const listViewingRequests = async (req, res) => {
 				.sort({ createdAt: -1 })
 				.skip(skip)
 				.limit(Number(limit))
-				.populate('user', 'name email')
-				.populate('agent', 'name email')
+				.populate('user', 'name email phone')
+				.populate('agent', 'name email phone')
 				.populate('propertyId', 'title location'),
 		]);
 
-		return res.json({ status: 'success', total, page: Number(page), limit: Number(limit), results });
+		// Convert results to plain objects and rename propertyId -> property
+		const mappedResults = results.map((r) => {
+			const obj = typeof r.toObject === 'function' ? r.toObject() : r;
+			if (obj.propertyId) {
+				obj.property = obj.propertyId;
+				delete obj.propertyId;
+			}
+			return obj;
+		});
+
+		return res.json({ status: 'success', total, page: Number(page), limit: Number(limit), results: mappedResults });
 	} catch (err) {
 		console.error('Error listing viewing requests:', err);
 		return res.status(500).json({ status: 'error', message: 'Internal server error' });
@@ -185,6 +209,14 @@ const updateViewingRequest = async (req, res) => {
 		if (contactMethod) viewing.contactMethod = contactMethod;
 
 		await viewing.save();
+
+		// Ensure we have property data for notification payloads
+		let notifProperty = null;
+		try {
+			notifProperty = await Property.findById(viewing.propertyId).select('title').lean();
+		} catch (e) {
+			console.error('Failed to fetch property for notifications on update', e);
+		}
 
 		// If status changed, notify requester and agent
 		try {
@@ -242,7 +274,19 @@ const updateViewingRequest = async (req, res) => {
 			console.error('Notification error on update (non-fatal):', notifyErr);
 		}
 
-		return res.json({ status: 'success', data: viewing });
+		// Populate property for response and return with property field
+		try {
+			await viewing.populate('propertyId', 'title location');
+		} catch (e) {
+			console.error('Failed to populate property on viewing after update', e);
+		}
+		let viewingObj = viewing.toObject ? viewing.toObject() : viewing;
+		if (viewingObj.propertyId) {
+			viewingObj.property = viewingObj.propertyId;
+			delete viewingObj.propertyId;
+		}
+
+		return res.json({ status: 'success', data: viewingObj });
 	} catch (err) {
 		console.error('Error updating viewing request:', err);
 		return res.status(500).json({ status: 'error', message: 'Internal server error' });
