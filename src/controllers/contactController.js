@@ -32,7 +32,7 @@ exports.submitContactForm = async (req, res) => {
 		}
 
 		// Send email notification to admin
-		const adminEmail = process.env.ADMIN_EMAIL || 'admin@realagent.com';
+		const adminEmail = process.env.ADMIN_EMAIL || 'therealagent.com@gmail.com';
 		await sendContactFormEmail(adminEmail, { name, email, subject, message });
 
 		// Send confirmation email to user

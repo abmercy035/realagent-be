@@ -186,7 +186,7 @@ Thank you for contacting RealAgent!
 ✅ We have received your message and our team will review it shortly.
 
 📧 WHAT'S NEXT?
-We typically respond within 24-48 hours during business days. If your inquiry is urgent, please call us at +1 (234) 567-890.
+We typically respond within 24-48 hours during business days. If your inquiry is urgent, please call us at +234 (702) 6889-068.
 
 In the meantime, you might find these resources helpful:
 • FAQ: ${process.env.FRONTEND_URL}/faq
@@ -319,6 +319,38 @@ Please review this report within 24 hours and take appropriate action.
 RealAgent Admin System`
 	},
 
+// 	fraudReportConfirmation: {
+// 		title: 'Fraud Report Received - RealAgent Security',
+// 		body: `Thank you for reporting suspicious activity.
+
+// ✅ YOUR REPORT HAS BEEN RECEIVED
+
+// Report ID: {{reportId}}
+// Type: {{fraudType}}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// 📋 WHAT HAPPENS NEXT?
+// • Our security team will review your report within 24 hours
+// • We will investigate the matter thoroughly
+// • If necessary, we will take action against the reported user
+// • Your report helps keep RealAgent safe for everyone
+
+// 🔍 CHECK REPORT STATUS:
+// {{statusLink}}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// ⚠️ IMPORTANT:
+// All reports are confidential. We do not disclose reporter identities to the reported parties.
+
+// If you have additional information to add to this report, please reply to this email with your Report ID.
+
+// Thank you for helping us maintain a safe platform!
+
+// Best regards,
+// RealAgent Security Team`
+// 	}
 	fraudReportConfirmation: {
 		title: 'Fraud Report Received - RealAgent Security',
 		body: `Thank you for reporting suspicious activity.
@@ -335,9 +367,6 @@ Type: {{fraudType}}
 • We will investigate the matter thoroughly
 • If necessary, we will take action against the reported user
 • Your report helps keep RealAgent safe for everyone
-
-🔍 CHECK REPORT STATUS:
-{{statusLink}}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

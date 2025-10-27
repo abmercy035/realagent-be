@@ -54,15 +54,17 @@ exports.submitFraudReport = async (req, res) => {
 		if (req.files && req.files.length > 0) {
 			for (const file of req.files) {
 				try {
-					const result = await cloudinary.uploader.upload(file.path, {
+					const result = await cloudinary.uploadToCloudinary(file.path, {
 						folder: 'realagent/fraud-evidence',
 						resource_type: 'auto',
 					});
 
+console.log(result)
+
 					evidence.push({
 						type: file.mimetype.startsWith('image/') ? 'screenshot' : 'document',
-						url: result.secure_url,
-						publicId: result.public_id,
+						url: result.url,
+						publicId: result.publicId,
 						description: file.originalname,
 					});
 				} catch (uploadError) {
@@ -101,7 +103,7 @@ exports.submitFraudReport = async (req, res) => {
 		await fraudFlag.save();
 
 		// Send email notifications
-		const adminEmail = process.env.ADMIN_EMAIL || 'admin@realagent.com';
+		const adminEmail = process.env.ADMIN_EMAIL || 'therealagent.com@gmail.com';
 
 		try {
 			// Send notification to admin
