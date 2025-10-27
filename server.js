@@ -11,6 +11,14 @@ connectDB();
 const server = app.listen(PORT, () => {
 	console.log(`🚀 Server running on port ${PORT}`);
 	console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+	// Start background pinger to hit /health periodically (keeps app warm / reachable)
+	try {
+		const { startPinger } = require('./src/utils/pinger');
+		// Use environment variables if provided, otherwise defaults inside pinger
+		startPinger();
+	} catch (err) {
+		console.warn('Pinger utility failed to start:', err.message || err);
+	}
 });
 
 // Handle unhandled promise rejections

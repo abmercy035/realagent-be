@@ -24,7 +24,7 @@ We are excited to have you onboard and help you find the perfect property or con
 
 Best regards,
 RealAgent Team
-${process.env.FRONTEND_URL || 'http://localhost:3000'}`
+${process.env.FRONTEND_URL }`
 	},
 
 	verification: {
@@ -189,8 +189,8 @@ Thank you for contacting RealAgent!
 We typically respond within 24-48 hours during business days. If your inquiry is urgent, please call us at +1 (234) 567-890.
 
 In the meantime, you might find these resources helpful:
-• FAQ: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/faq
-• Help Center: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/support
+• FAQ: ${process.env.FRONTEND_URL}/faq
+• Help Center: ${process.env.FRONTEND_URL}/support
 
 Thank you for your patience!
 
