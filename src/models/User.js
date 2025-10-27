@@ -37,6 +37,10 @@ const userSchema = new mongoose.Schema(
 			minlength: [6, 'Password must be at least 6 characters'],
 			select: false,
 		},
+		bio: {
+			type: String,
+			maxlength: [500, 'Bio must be at most 3000 characters'],
+		},
 		phone: {
 			type: String,
 			trim: true,
@@ -47,7 +51,24 @@ const userSchema = new mongoose.Schema(
 			trim: true,
 			maxlength: [100, 'School name cannot exceed 100 characters'],
 		},
-		experience: {
+		location: {
+			country: {
+				type: String
+			},
+			state: {
+				type: String
+			},
+			city: {
+				type: String
+			},
+			landmark: {
+				type: String
+			}
+		},
+		yearsOfExperience: {
+			type: String,
+		},
+		languages: {
 			type: String,
 		},
 
@@ -254,37 +275,39 @@ userSchema.methods.generateResetToken = function () {
 	* @returns {Object} Safe user data for public display
 	*/
 userSchema.methods.toPublicProfile = function () {
-  const expYears = Number(this.experience) || 0;
+	const expYears = Number(this.yearsOfExperience) || 0;
 
-    let accountYears = 0;
-    if (this.createdAt instanceof Date && !Number.isNaN(this.createdAt.getTime())) {
-        const now = new Date();
-        accountYears = now.getFullYear() - this.createdAt.getFullYear();
-        const monthDiff = now.getMonth() - this.createdAt.getMonth();
-        if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < this.createdAt.getDate())) {
-            accountYears -= 1;
-        }
-        if (accountYears < 0) accountYears = 0;
-    }
+	let accountYears = 0;
+	if (this.createdAt instanceof Date && !Number.isNaN(this.createdAt.getTime())) {
+		const now = new Date();
+		accountYears = now.getFullYear() - this.createdAt.getFullYear();
+		const monthDiff = now.getMonth() - this.createdAt.getMonth();
+		if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < this.createdAt.getDate())) {
+			accountYears -= 1;
+		}
+		if (accountYears < 0) accountYears = 0;
+	}
 
-    const yearsOfExperience = Math.max(expYears, accountYears);
+	const yearsOfExperience = Math.max(expYears, accountYears);
 
-    return {
-        id: this._id,
-        name: this.name,
-        email: this.email,
-        phone: this.phone,
-        school: this.school,
-        location: this.location,
-        role: this.role,
-        verified: this.verified,
-        status: this.status,
-        rating: this.rating,
-        reviewCount: this.reviewCount,
-        yearsOfExperience,
-        createdAt: this.createdAt,
-        lastLogin: this.lastLogin,
-    };
+	return {
+		id: this._id,
+		name: this.name,
+		email: this.email,
+		bio: this.bio,
+		phone: this.phone,
+		school: this.school,
+		location: this.location,
+		role: this.role,
+		verified: this.verified,
+		status: this.status,
+		rating: this.rating,
+		reviewCount: this.reviewCount,
+		languages: this.languages,
+		yearsOfExperience,
+		createdAt: this.createdAt,
+		lastLogin: this.lastLogin,
+	};
 };
 
 /**
