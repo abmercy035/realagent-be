@@ -317,6 +317,36 @@ const approveVerification = async (req, res) => {
 			// Continue even if email fails
 		}
 
+		// Load agent user profile
+		const agentProfile = await User.findById(verification.agentId._id);
+
+		// Generate a unique agentIdNumber (RA-######). Try DB check to avoid collisions.
+		const generateUniqueAgentIdNumber = async () => {
+			const maxAttempts = 10;
+			for (let i = 0; i < maxAttempts; i++) {
+				const candidate = `RA-${Math.floor(100000 + Math.random() * 900000)}`;
+				// Check both AgentVerification and User collections for existing value
+				const existsInVerification = await AgentVerification.exists({ agentIdNumber: candidate });
+				const existsInUser = await User.exists({ agentIdNumber: candidate });
+				if (!existsInVerification && !existsInUser) return candidate;
+			}
+			// Fallback: use timestamp-based id to ensure uniqueness
+			return `RA-${Date.now().toString().slice(-8)}`;
+		};
+
+		const newAgentIdNumber = await generateUniqueAgentIdNumber();
+
+		// Persist on both verification document and user profile
+		verification.agentIdNumber = newAgentIdNumber;
+		await verification.save();
+
+		if (agentProfile) {
+			agentProfile.agentIdNumber = newAgentIdNumber;
+			agentProfile.verified = true;
+			await agentProfile.save();
+		}
+		
+
 		res.status(200).json({
 			status: 'success',
 			message: 'Verification approved successfully',

@@ -139,6 +139,12 @@ const userSchema = new mongoose.Schema(
 		// ===========================
 		// RATING & REVIEWS (for agents)
 		// ===========================
+		agentIdNumber: {
+			type: String,
+			unique: true,
+			sparse: true,
+			trim: true,
+		},
 		rating: {
 			type: Number,
 			default: 0,

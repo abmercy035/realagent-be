@@ -17,6 +17,11 @@ const agentVerificationSchema = new mongoose.Schema(
 			required: [true, 'Agent ID is required'],
 			index: true,
 		},
+		agentIdNumber: {
+			type: String,
+			unique: true,
+			sparse: true,
+		},
 
 		// ===========================
 		// VERIFICATION DOCUMENTS
