@@ -202,10 +202,11 @@ const getMe = async (req, res) => {
 const getUserById = async (req, res) => {
 	try {
 		const user = await User.findById(req.params.id).select('-password');
+
 		if (!user) {
 			return res.status(404).json({ status: 'error', message: 'User not found' });
 		}
-		res.json({ status: 'success', data: user });
+		res.json({ status: 'success', data: user.toPublicProfile() });
 	} catch (err) {
 		res.status(500).json({ status: 'error', message: 'Failed to fetch user', error: err.message });
 	}

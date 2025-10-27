@@ -47,6 +47,9 @@ const userSchema = new mongoose.Schema(
 			trim: true,
 			maxlength: [100, 'School name cannot exceed 100 characters'],
 		},
+		experience: {
+			type: String,
+		},
 
 		// ===========================
 		// ROLE & PERMISSIONS
@@ -251,21 +254,37 @@ userSchema.methods.generateResetToken = function () {
 	* @returns {Object} Safe user data for public display
 	*/
 userSchema.methods.toPublicProfile = function () {
-	return {
-		id: this._id,
-		name: this.name,
-		email: this.email,
-		phone: this.phone,
-		school: this.school,
-		location: this.location,
-		role: this.role,
-		verified: this.verified,
-		status: this.status,
-		rating: this.rating,
-		reviewCount: this.reviewCount,
-		createdAt: this.createdAt,
-		lastLogin: this.lastLogin,
-	};
+  const expYears = Number(this.experience) || 0;
+
+    let accountYears = 0;
+    if (this.createdAt instanceof Date && !Number.isNaN(this.createdAt.getTime())) {
+        const now = new Date();
+        accountYears = now.getFullYear() - this.createdAt.getFullYear();
+        const monthDiff = now.getMonth() - this.createdAt.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < this.createdAt.getDate())) {
+            accountYears -= 1;
+        }
+        if (accountYears < 0) accountYears = 0;
+    }
+
+    const yearsOfExperience = Math.max(expYears, accountYears);
+
+    return {
+        id: this._id,
+        name: this.name,
+        email: this.email,
+        phone: this.phone,
+        school: this.school,
+        location: this.location,
+        role: this.role,
+        verified: this.verified,
+        status: this.status,
+        rating: this.rating,
+        reviewCount: this.reviewCount,
+        yearsOfExperience,
+        createdAt: this.createdAt,
+        lastLogin: this.lastLogin,
+    };
 };
 
 /**
