@@ -31,3 +31,22 @@ exports.searchAgents = async (req, res) => {
     res.status(500).json({ status: 'error', message: 'Agent search failed', error: err.message });
   }
 };
+
+/**
+ * @route   GET /api/agents/:username
+ * @desc    Get public agent profile by username
+ * @access  Public
+ */
+exports.getAgentByUsername = async (req, res) => {
+  try {
+    const username = req.params.username;
+    if (!username) return res.status(400).json({ status: 'error', message: 'Username is required' });
+
+    const agent = await User.findOne({ username, role: 'agent' }).select('-password');
+    if (!agent) return res.status(404).json({ status: 'error', message: 'Agent not found' });
+
+    res.json({ status: 'success', data: agent });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: 'Failed to fetch agent', error: err.message });
+  }
+};

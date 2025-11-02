@@ -26,7 +26,9 @@ const { auth } = require('../middleware/auth');
 	* @access  Private (Agent)
 	*/
 const { requireRole } = require('../middleware/roleCheck');
-router.post('/', auth, requireRole('agent'), require('../controllers/propertyController').createProperty);
+const { enforcePostLimit } = require('../middleware/planLimit');
+
+router.post('/', auth, requireRole('agent'), enforcePostLimit, require('../controllers/propertyController').createProperty);
 
 /**
 	* @route   GET /api/properties

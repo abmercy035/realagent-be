@@ -4,6 +4,7 @@
 	*/
 
 const { sendContactFormEmail, sendContactConfirmationEmail } = require('../utils/email');
+const Contact = require('../models/Contact');
 
 /**
 	* @route   POST /api/contact
@@ -33,6 +34,15 @@ exports.submitContactForm = async (req, res) => {
 
 		// Send email notification to admin
 		const adminEmail = process.env.ADMIN_EMAIL || 'therealagent.com@gmail.com';
+
+		// Persist contact submission (best-effort). If DB save fails, continue and still send email.
+		try {
+			await Contact.create({ name, email, subject, message, ip: req.ip, user: req.user ? req.user._id : undefined });
+		} catch (dbErr) {
+			console.warn('Failed to persist contact submission:', dbErr && dbErr.message ? dbErr.message : dbErr);
+		}
+
+		// Send email notification to admin
 		await sendContactFormEmail(adminEmail, { name, email, subject, message });
 
 		// Send confirmation email to user

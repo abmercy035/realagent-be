@@ -5,6 +5,7 @@
 
 const AgentVerification = require('../models/AgentVerification');
 const User = require('../models/User');
+const mongoose = require('mongoose');
 const { uploadToCloudinary, uploadAgentDocument, deleteFromCloudinary } = require('../config/cloudinary');
 const {
 	sendVerificationApprovedEmail,
@@ -334,16 +335,90 @@ const approveVerification = async (req, res) => {
 			return `RA-${Date.now().toString().slice(-8)}`;
 		};
 
-		const newAgentIdNumber = await generateUniqueAgentIdNumber();
+		// Persist on both verification document and user profile.
+		// Prefer a transaction to ensure both docs are updated atomically where supported.
+		// Fall back to a save-with-retry approach if transactions are not available.
+		const maxSaveAttempts = 5;
+		let saved = false;
+		let lastError;
 
-		// Persist on both verification document and user profile
-		verification.agentIdNumber = newAgentIdNumber;
-		await verification.save();
+		for (let attempt = 1; attempt <= maxSaveAttempts && !saved; attempt++) {
+			const candidate = await generateUniqueAgentIdNumber();
+			try {
+				// assign candidate
+				verification.agentIdNumber = candidate;
+				if (agentProfile) {
+					agentProfile.agentIdNumber = candidate;
+					agentProfile.verified = true;
+				}
 
-		if (agentProfile) {
-			agentProfile.agentIdNumber = newAgentIdNumber;
-			agentProfile.verified = true;
-			await agentProfile.save();
+				// Try to use a transaction (requires replica set); if unavailable we'll catch and fallback
+				let session;
+				try {
+					session = await mongoose.startSession();
+					session.startTransaction();
+
+					await verification.save({ session });
+					if (agentProfile) await agentProfile.save({ session });
+
+					await session.commitTransaction();
+					session.endSession();
+
+					saved = true;
+					break;
+				} catch (txErr) {
+					// Ensure session is cleaned up
+					if (session) {
+						try { await session.abortTransaction(); } catch (e) { }
+						session.endSession();
+					}
+
+					lastError = txErr;
+
+					// Duplicate key from transaction commit or save -> retry with new candidate
+					if (txErr && txErr.code && (txErr.code === 11000 || txErr.code === 11001)) {
+						console.warn(`Duplicate agentIdNumber detected in transaction on attempt ${attempt}, retrying...`);
+						continue;
+					}
+
+					// If transactions are not supported (e.g., standalone), fall back to session-less save with retry
+					const txNotSupported = txErr && (txErr.message && (txErr.message.includes('transactions are not supported') || txErr.message.includes('Transaction numbers are only allowed on a replica set')));
+					if (txNotSupported) {
+						try {
+							await verification.save();
+							if (agentProfile) await agentProfile.save();
+							saved = true;
+							break;
+						} catch (saveErr) {
+							lastError = saveErr;
+							if (saveErr && saveErr.code && (saveErr.code === 11000 || saveErr.code === 11001)) {
+								console.warn(`Duplicate agentIdNumber detected on standalone save attempt ${attempt}, retrying...`);
+								continue;
+							}
+							console.error('Failed to save verification/user during approve (standalone save):', saveErr);
+							break;
+						}
+					}
+
+					// For other transaction-related errors, propagate
+					console.error('Transaction error while saving verification/user:', txErr);
+					break;
+				}
+			} catch (outerErr) {
+				lastError = outerErr;
+				if (outerErr && outerErr.code && (outerErr.code === 11000 || outerErr.code === 11001)) {
+					console.warn(`Duplicate agentIdNumber detected on attempt ${attempt}, retrying...`);
+					continue;
+				}
+				console.error('Failed to persist agentIdNumber during approval:', outerErr);
+				break;
+			}
+		}
+
+		if (!saved) {
+			// If saving repeatedly failed, surface error
+			console.error('Failed to persist agentIdNumber after retries', lastError);
+			return res.status(500).json({ status: 'error', message: 'Failed to finalize verification due to duplicate ID collision. Please try again.' });
 		}
 		
 

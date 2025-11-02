@@ -20,6 +20,15 @@ const userSchema = new mongoose.Schema(
 			minlength: [2, 'Name must be at least 2 characters'],
 			maxlength: [100, 'Name cannot exceed 100 characters'],
 		},
+		username: {
+			type: String,
+			trim: true,
+			lowercase: true,
+			unique: true,
+			sparse: true,
+			maxlength: [50, 'Username cannot exceed 50 characters'],
+			match: [/^[a-z0-9\-_.]+$/i, 'Username can only contain letters, numbers, hyphens, underscores and dots'],
+		},
 		email: {
 			type: String,
 			required: [true, 'Email is required'],
@@ -65,6 +74,25 @@ const userSchema = new mongoose.Schema(
 				type: String
 			}
 		},
+		// Student-specific email for student agents
+		studentEmail: {
+			type: String,
+			trim: true,
+			lowercase: true,
+		},
+		studentEmailVerified: {
+			type: Boolean,
+			default: false,
+			index: true,
+		},
+		studentVerificationToken: {
+			type: String,
+			select: false,
+		},
+		studentVerificationTokenExpires: {
+			type: Date,
+			select: false,
+		},
 		yearsOfExperience: {
 			type: String,
 		},
@@ -82,6 +110,50 @@ const userSchema = new mongoose.Schema(
 				message: 'Role must be either user, agent, or admin',
 			},
 			default: 'user',
+		},
+
+
+		// ===========================
+		// SUBSCRIPTION / BILLING
+		// ===========================
+		subscription: {
+			plan: {
+				type: String,
+				enum: ['free', 'basic', 'pro', 'enterprise'],
+				default: 'free',
+			},
+			status: {
+				type: String,
+				enum: ['none', 'trialing', 'active', 'past_due', 'canceled'],
+				default: 'none',
+				index: true,
+			},
+			provider: {
+				type: String, // e.g. 'stripe', 'paypal'
+			},
+			customerId: {
+				type: String, // provider's customer id
+			},
+			subscriptionId: {
+				type: String, // provider's subscription id
+			},
+			priceId: {
+				type: String, // provider's price/plan id
+			},
+			startedAt: Date,
+			currentPeriodStart: Date,
+			currentPeriodEnd: Date,
+			trialEndsAt: Date,
+			graceUntil: Date,
+			cancelAtPeriodEnd: {
+				type: Boolean,
+				default: false,
+			},
+			cancelAt: Date,
+			canceledAt: Date,
+			// last4 or token reference (do not store full card data)
+			paymentMethodLast4: String,
+			billingEmail: String,
 		},
 
 		// ===========================
@@ -177,6 +249,8 @@ userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
 userSchema.index({ verified: 1 });
 userSchema.index({ createdAt: -1 });
+userSchema.index({ 'subscription.status': 1 });
+userSchema.index({ username: 1 }, { unique: true, sparse: true });
 
 // ===========================
 // VIRTUAL PROPERTIES
@@ -205,7 +279,37 @@ userSchema.virtual('isVerified').get(function () {
 	* Only runs if password is modified
 	*/
 userSchema.pre('save', async function (next) {
-	// Skip if password hasn't been modified
+	// Ensure username exists for public agent profiles
+	try {
+		if (!this.username && this.name) {
+			const slugify = (s) =>
+				s
+					.toString()
+					.toLowerCase()
+					.trim()
+					.replace(/[\s\_]+/g, '-')
+					.replace(/[^a-z0-9\-\.\_]/g, '');
+
+			let base = slugify(this.name).slice(0, 40) || `user-${Math.floor(Math.random() * 10000)}`;
+			let candidate = base;
+			// Ensure uniqueness (append random suffix on collision)
+			let exists = await mongoose.models.User.findOne({ username: candidate }).exec();
+			let attempts = 0;
+			while (exists && attempts < 5) {
+				candidate = `${base}-${Math.floor(Math.random() * 9000) + 1000}`;
+				exists = await mongoose.models.User.findOne({ username: candidate }).exec();
+				attempts++;
+			}
+			// If still exists after attempts, append timestamp
+			if (exists) candidate = `${base}-${Date.now().toString().slice(-5)}`;
+			this.username = candidate;
+		}
+	} catch (err) {
+		// Non-fatal: continue to password hashing; username uniqueness will be enforced by DB index
+		console.warn('Username generation error:', err && err.message);
+	}
+
+	// Hash password if it's been modified
 	if (!this.isModified('password')) {
 		return next();
 	}
@@ -257,6 +361,25 @@ userSchema.methods.generateVerificationToken = function () {
 };
 
 /**
+	* Generate student email verification token (for student agents)
+	* @returns {string} unhashed token to send via email
+	*/
+userSchema.methods.generateStudentVerificationToken = function () {
+	const token = crypto.randomBytes(32).toString('hex');
+
+	// Hash token before storing
+	this.studentVerificationToken = crypto
+		.createHash('sha256')
+		.update(token)
+		.digest('hex');
+
+	// Token expires in 24 hours
+	this.studentVerificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000;
+
+	return token;
+};
+
+/**
 	* Generate password reset token
 	* Token is hashed before storing in database
 	* @returns {string} Unhashed token to send via email
@@ -299,6 +422,7 @@ userSchema.methods.toPublicProfile = function () {
 	return {
 		id: this._id,
 		name: this.name,
+		username: this.username,
 		email: this.email,
 		bio: this.bio,
 		phone: this.phone,
@@ -321,8 +445,72 @@ userSchema.methods.toPublicProfile = function () {
 	* @returns {Promise<User>} Updated user document
 	*/
 userSchema.methods.updateLastLogin = async function () {
+	const changed = this.refreshSubscriptionStatus && this.refreshSubscriptionStatus();
 	this.lastLogin = new Date();
 	return await this.save({ validateBeforeSave: false });
+};
+
+/**
+	* Refresh subscription status in-memory.
+	* - If trialEndsAt or currentPeriodEnd has elapsed, set plan -> 'free' and status -> 'none'
+	* - Returns true if the document was modified (in-memory), caller should save
+	*/
+userSchema.methods.refreshSubscriptionStatus = function () {
+	const now = new Date();
+	const s = this.subscription || {};
+	let changed = false;
+
+	if (!s || !s.status || s.status === 'none') return false;
+
+	// Expired trial: set back to free and clear subscription status
+	if (s.status === 'trialing' && s.trialEndsAt && new Date(s.trialEndsAt) <= now) {
+		s.plan = 'free';
+		s.status = 'none';
+		// set 7-day grace window on automatic downgrade
+		s.graceUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+		changed = true;
+	}
+
+	// Expired active subscription: set back to free and clear subscription status
+	if (s.status === 'active' && s.currentPeriodEnd && new Date(s.currentPeriodEnd) <= now) {
+		s.plan = 'free';
+		s.status = 'none';
+		// set 7-day grace window on automatic downgrade
+		s.graceUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+		changed = true;
+	}
+
+	if (changed) {
+		this.subscription = s;
+	}
+
+	return changed;
+};
+
+/**
+	* Bulk refresh expired subscriptions (use from a cron job or admin endpoint)
+	* Updates matching users in the database without loading each document.
+	* Returns the result of updateMany.
+	*/
+userSchema.statics.refreshExpiredSubscriptions = function () {
+	const now = new Date();
+	const graceUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+	return this.updateMany(
+		{
+			$or: [
+				{ 'subscription.status': 'trialing', 'subscription.trialEndsAt': { $lte: now } },
+				{ 'subscription.status': 'active', 'subscription.currentPeriodEnd': { $lte: now } },
+			],
+		},
+		{
+			$set: {
+				'subscription.plan': 'free',
+				// revert status to 'none' so callers validate by plan instead
+				'subscription.status': 'none',
+				'subscription.graceUntil': graceUntil,
+			},
+		}
+	);
 };
 
 // ===========================
@@ -345,6 +533,18 @@ userSchema.statics.findByEmail = function (email) {
 	*/
 userSchema.statics.findActiveByRole = function (role) {
 	return this.find({ role, status: 'active' });
+};
+
+userSchema.virtual('isSubscribed').get(function () {
+	return this.subscription && (this.subscription.status === 'active' || this.subscription.status === 'trialing');
+});
+
+userSchema.methods.hasActiveSubscription = function () {
+	const s = this.subscription || {};
+	if (!s.status) return false;
+	if (s.status === 'active') return true;
+	if (s.status === 'trialing' && s.trialEndsAt && new Date() < new Date(s.trialEndsAt)) return true;
+	return false;
 };
 
 /**

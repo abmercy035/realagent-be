@@ -2,6 +2,7 @@ const Property = require('../models/Property');
 			const ViewingRequest = require('../models/ViewingRequest');
 const User = require('../models/User');
 const cloudinary = require('../config/cloudinary');
+const { canCreateProperty } = require('../utils/planUtils');
 
 /**
 	* @route   POST /api/properties
@@ -11,6 +12,22 @@ const cloudinary = require('../config/cloudinary');
 exports.createProperty = async (req, res) => {
 	try {
 		const agentId = req.user._id;
+		// Ensure user email is verified before allowing listing
+		if (!req.user.verified) {
+			// Attempt to send verification email and inform client
+			try {
+				const { sendVerificationEmail } = require('../utils/email');
+				const token = req.user.generateVerificationToken ? req.user.generateVerificationToken() : null;
+				if (token) {
+					await req.user.save();
+					await sendVerificationEmail(req.user.email, req.user.name, token);
+				}
+			} catch (emailErr) {
+				console.warn('Failed to send verification email during property create:', emailErr.message || emailErr);
+			}
+
+			return res.status(403).json({ success: false, error: 'Email not verified. Verification email sent.', code: 'EMAIL_NOT_VERIFIED' });
+		}
 		const {
 			title,
 			description,
@@ -74,6 +91,44 @@ exports.createProperty = async (req, res) => {
 			agent: agentId,
 			status,
 		});
+
+		// After creation: enforce rule for free-plan grace period. If the user
+		// is in a grace window and the new total exceeds their free plan limit,
+		// delete the newly created property immediately (product rule).
+		try {
+			const check = await canCreateProperty(req.user);
+			if (check && check.inGrace && check.current > check.limit) {
+				// delete the property we just created
+				try {
+					// cleanup cloudinary media attached to this property
+					const deletions = [];
+					if (property.media && Array.isArray(property.media.images)) {
+						for (const img of property.media.images) {
+							if (img && img.publicId) deletions.push(cloudinary.deleteFromCloudinary(img.publicId).catch(() => { }));
+						}
+					}
+					if (property.media && Array.isArray(property.media.videos)) {
+						for (const vid of property.media.videos) {
+							if (vid && vid.publicId) deletions.push(cloudinary.deleteFromCloudinary(vid.publicId).catch(() => { }));
+						}
+					}
+					if (deletions.length) await Promise.allSettled(deletions);
+				} catch (cleanupErr) {
+					console.error('Failed to cleanup media after removing property due to grace-limit:', cleanupErr);
+				}
+
+				await Property.findByIdAndDelete(property._id);
+				return res.status(403).json({
+					success: false,
+					message: 'Your account is on a free plan grace period — newly created property removed because it would exceed your plan limit',
+					current: check.current - 1,
+					limit: check.limit,
+				});
+			}
+		} catch (e) {
+			// If the check fails for some reason, log and continue returning success
+			console.error('Post-create plan check failed:', e);
+		}
 
 		res.status(201).json({ success: true, data: property });
 	} catch (error) {
@@ -478,18 +533,50 @@ console.log({total, active})
 		// Views by month (based on metrics.viewedBy.viewedAt timestamps)
 		const viewsByMonth = await Property.aggregate([
 			{ $match: query },
-			{ $unwind: { path: '$metrics.viewedBy', preserveNullAndEmptyArrays: true } },
-			{
-				$project: {
-					month: {
-						$dateToString: { format: '%Y-%m', date: '$metrics.viewedBy.viewedAt' },
+					{
+						$project: {
+							// If metrics.viewedBy is a non-empty array use it, otherwise create a synthetic entry
+							viewEntries: {
+								$cond: [
+									{ $and: [{ $isArray: '$metrics.viewedBy' }, { $gt: [{ $size: '$metrics.viewedBy' }, 0] }] },
+									'$metrics.viewedBy',
+									[
+										{
+											viewedAt: { $ifNull: ['$publishedAt', '$createdAt'] },
+											viewCount: { $ifNull: ['$metrics.views', 0] }
+										}
+									]
+								]
+							}
+						}
 					},
-					viewCount: { $ifNull: ['$metrics.viewedBy.viewCount', 0] },
-				},
-			},
-			{ $group: { _id: '$month', views: { $sum: '$viewCount' } } },
-			{ $sort: { _id: 1 } },
-		]);
+					{ $unwind: { path: '$viewEntries', preserveNullAndEmptyArrays: false } },
+					{
+						$project: {
+							month: {
+															$dateToString: {
+																format: '%Y-%m',
+																date: {
+																	$cond: [
+																		{ $eq: [{ $type: '$viewEntries.viewedAt' }, 'string'] },
+																		{ $toDate: '$viewEntries.viewedAt' },
+																		'$viewEntries.viewedAt'
+																	]
+																}
+															}
+														},
+							viewCount: {
+								$cond: [
+									{ $and: [{ $ne: ['$viewEntries.viewCount', null] }, { $isNumber: '$viewEntries.viewCount' }] },
+									'$viewEntries.viewCount',
+									1
+								]
+							}
+						}
+					},
+					{ $group: { _id: '$month', views: { $sum: '$viewCount' } } },
+					{ $sort: { _id: 1 } },
+				]);
 
 		// Map aggregation result to a stable shape
 		const viewsMonthMetrics = (viewsByMonth || [])

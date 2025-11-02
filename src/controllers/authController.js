@@ -16,9 +16,7 @@ const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/emai
 	*/
 const register = async (req, res) => {
 	try {
-		const { school, name, email, password, phone, role, location, matricNumber } = req.body;
-
-		console.log(req.body)
+		const { school, name, email, password, phone, role, location, studentEmail, agentType } = req.body;
 
 		const validationErr = isInValiData(['school-string-max40', 'name-string-min3',
 			"email-email", "password-pwd", "phone-string-min9"], req.body)
@@ -50,21 +48,34 @@ const register = async (req, res) => {
 			phone: phone || '0000000000',
 			role: role || 'user',
 			location,
-			matricNumber
 		});
 
-		// Generate verification token
+		// If registering as student agent, record studentEmail and send student verification
+		let studentToken = null;
+		if (role === 'agent' && agentType === 'student' && studentEmail) {
+			user.studentEmail = studentEmail.toLowerCase();
+			studentToken = user.generateStudentVerificationToken();
+		}
+
+		// Generate account verification token
 		const verificationToken = user.generateVerificationToken();
 
 		// Save user
 		await user.save();
 
-		// Send verification email
+		// Send verification emails
 		try {
 			await sendVerificationEmail(user.email, user.name, verificationToken);
 		} catch (emailError) {
 			console.error('Failed to send verification email:', emailError);
-			// Continue registration even if email fails
+		}
+
+		if (studentToken) {
+			try {
+				await sendVerificationEmail(user.studentEmail, user.name, studentToken);
+			} catch (emailError) {
+				console.error('Failed to send student verification email:', emailError);
+			}
 		}
 
 		// Generate JWT token
@@ -108,6 +119,7 @@ const login = async (req, res) => {
 			});
 		}
 
+
 		// Find user with password field
 		const user = await User.findByEmail(email.toLowerCase());
 		console.log(user)
@@ -117,7 +129,9 @@ const login = async (req, res) => {
 				message: 'Invalid email or password',
 			});
 		}
+
 		console.log(user)
+
 		// Check if account is active
 		if (user.status !== 'active') {
 			return res.status(403).json({
@@ -128,6 +142,7 @@ const login = async (req, res) => {
 
 		// Compare password
 		const isPasswordValid = await user.comparePassword(password);
+		console.log(isPasswordValid)
 		if (!isPasswordValid) {
 			return res.status(401).json({
 				status: 'error',
@@ -214,7 +229,7 @@ const getUserById = async (req, res) => {
 
 /**
 	* @route   PUT /api/auth/me
-	* @desc    Update current user's profile (name, phone, school)
+	* @desc    Update current user's profile (name, phone, school, location)
 	* @access  Private
 	*/
 const updateProfile = async (req, res) => {
@@ -224,7 +239,7 @@ const updateProfile = async (req, res) => {
 			return res.status(401).json({ status: 'error', message: 'Unauthorized' });
 		}
 
-		const allowedFields = ['name', 'phone', 'school'];
+		const allowedFields = ['name', 'phone', 'school', 'location', 'languages'];
 		const updates = {};
 
 		// Pick only allowed fields and sanitize
@@ -265,6 +280,8 @@ const updateProfile = async (req, res) => {
 		}
 
 		await user.save();
+
+		console.log(user.toPublicProfile())
 
 		res.status(200).json({ status: 'success', message: 'Profile updated', data: { user: user.toPublicProfile() } });
 	} catch (error) {
@@ -317,29 +334,37 @@ const verifyEmail = async (req, res) => {
 		const crypto = require('crypto');
 		const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
-		// Find user with matching token that hasn't expired
-		const user = await User.findOne({
+		// Try to find account verification token first
+		let user = await User.findOne({
 			verificationToken: hashedToken,
 			verificationTokenExpires: { $gt: Date.now() },
 		}).select('+verificationToken +verificationTokenExpires');
 
-		if (!user) {
-			return res.status(400).json({
-				status: 'error',
-				message: 'Invalid or expired verification token',
-			});
+		if (user) {
+			user.verified = true;
+			user.verificationToken = undefined;
+			user.verificationTokenExpires = undefined;
+			await user.save();
+
+			return res.status(200).json({ status: 'success', message: 'Email verified successfully' });
 		}
 
-		// Mark user as verified
-		user.verified = true;
-		user.verificationToken = undefined;
-		user.verificationTokenExpires = undefined;
+		// Otherwise check for student email verification
+		user = await User.findOne({
+			studentVerificationToken: hashedToken,
+			studentVerificationTokenExpires: { $gt: Date.now() },
+		}).select('+studentVerificationToken +studentVerificationTokenExpires');
+
+		if (!user) {
+			return res.status(400).json({ status: 'error', message: 'Invalid or expired verification token' });
+		}
+
+		user.studentEmailVerified = true;
+		user.studentVerificationToken = undefined;
+		user.studentVerificationTokenExpires = undefined;
 		await user.save();
 
-		res.status(200).json({
-			status: 'success',
-			message: 'Email verified successfully',
-		});
+		res.status(200).json({ status: 'success', message: 'Student email verified successfully' });
 	} catch (error) {
 		console.error('Email verification error:', error);
 		res.status(500).json({

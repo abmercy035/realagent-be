@@ -4,6 +4,7 @@ const router = express.Router();
 // Import route modules
 const authRoutes = require('./auth');
 const verificationRoutes = require('./verification');
+const adminRoutes = require('./admin');
 const agentsRoutes = require('./agents');
 const fraudRoutes = require('./fraud');
 const contactRoutes = require('./contact');
@@ -15,6 +16,9 @@ const roommatePostRoutes = require('./roommatePosts');
 const feeRoutes = require('./fees');
 const uploadsRoutes = require('./uploads');
 const viewingRequestsRoutes = require('./viewingRequests');
+const paymentRoutes = require('./payments');
+const subscriptionRoutes = require('./subscriptions');
+const plansRoutes = require('./plans');
 // const paymentRoutes = require('./payments');
 
 // Mount routes
@@ -22,6 +26,7 @@ router.use('/auth', authRoutes);
 router.use('/agents', agentsRoutes); // Agent search & verification routes
 router.use('/agents', verificationRoutes); // Agent verification routes
 router.use('/admin', verificationRoutes); // Admin verification routes
+router.use('/admin', adminRoutes); // Admin general routes (users, analytics)
 router.use('/reports', fraudRoutes); // User fraud reporting
 router.use('/admin', fraudRoutes); // Admin fraud management
 router.use('/contact', contactRoutes); // Contact form
@@ -33,6 +38,9 @@ router.use('/roommate-posts', roommatePostRoutes); // Roommate post creation
 router.use('/fees', feeRoutes); // Listing and roommate post fees
 router.use('/uploads', uploadsRoutes); // Media uploads (images/videos)
 router.use('/viewing-requests', viewingRequestsRoutes); // Viewing / inquiry requests
+router.use('/payments', paymentRoutes); // Payments (create intent, webhook)
+router.use('/subscriptions', subscriptionRoutes); // User subscription management
+router.use('/admin/plans', plansRoutes); // Admin plan management
 // router.use('/payments', paymentRoutes);
 
 // Health check endpoint
