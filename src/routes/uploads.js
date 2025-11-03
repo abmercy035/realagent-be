@@ -71,7 +71,6 @@ router.post('/property-media', upload.fields([{ name: 'images', maxCount: 4 }, {
 				const result = await cloudinary.uploader.upload(file.path, {
 					folder: `agent/properties/${agentId}/${propertyId || 'temp'}`,
 					resource_type: 'image',
-					upload_preset: 'blkd1c3b',
 					transformation: [{ quality: 'auto', fetch_format: 'auto' }],
 				});
 				images.push({ url: result.secure_url, publicId: result.public_id, format: result.format, width: result.width, height: result.height });
@@ -86,7 +85,6 @@ router.post('/property-media', upload.fields([{ name: 'images', maxCount: 4 }, {
 			const result = await cloudinary.uploader.upload(file.path, {
 				folder: `agent/properties/${agentId}/${propertyId || 'temp'}`,
 				resource_type: 'video',
-				upload_preset: 'blkd1c3b',
 				eager: [
 					{
 						width: 720,

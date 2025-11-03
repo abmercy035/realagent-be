@@ -239,9 +239,10 @@ const updateProfile = async (req, res) => {
 			return res.status(401).json({ status: 'error', message: 'Unauthorized' });
 		}
 
-		const allowedFields = ['name', 'phone', 'school', 'location', 'languages'];
+		const allowedFields = ['name', 'phone', 'school', 'location', 'languages', 'socialMedia'];
 		const updates = {};
 
+		console.log(req.body)
 		// Pick only allowed fields and sanitize
 		for (const key of allowedFields) {
 			if (Object.prototype.hasOwnProperty.call(req.body, key)) {
@@ -277,7 +278,11 @@ const updateProfile = async (req, res) => {
 
 		for (const [k, v] of Object.entries(updates)) {
 			user[k] = v;
+			console.log(user[k])
 		}
+
+		console.log({ updates })
+		console.log(user)
 
 		await user.save();
 

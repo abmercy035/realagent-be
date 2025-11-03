@@ -78,6 +78,21 @@ const userSchema = new mongoose.Schema(
 				type: String
 			}
 		},
+		socialMedia: {
+			whatsapp: {
+				type: String
+			},
+			facebook: {
+				type: String
+			},
+			instagram: {
+				type: String
+			},
+			twitter: {
+				type: String
+			}
+		},
+
 		// Student-specific email for student agents
 		studentEmail: {
 			type: String,
@@ -426,6 +441,10 @@ userSchema.methods.toPublicProfile = function () {
 	return {
 		id: this._id,
 		name: this.name,
+		avatar: this.avatar,
+		profile: this.avatar,
+		profile_pics: this.avatar,
+		profile_picture: this.avatar,
 		username: this.username,
 		email: this.email,
 		bio: this.bio,
@@ -438,6 +457,7 @@ userSchema.methods.toPublicProfile = function () {
 		rating: this.rating,
 		reviewCount: this.reviewCount,
 		languages: this.languages,
+		socialMedia: this.socialMedia,
 		yearsOfExperience,
 		createdAt: this.createdAt,
 		lastLogin: this.lastLogin,
