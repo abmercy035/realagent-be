@@ -83,7 +83,6 @@ const uploadAgentDocument = async (filePath, agentId) => {
 
 		const agentDocResourceType = filePath && filePath.startsWith('data:image') ? 'image' : 'raw';
 		const result = await cloudinary.uploader.upload(filePath, {
-			upload_preset: 'ml_default', // Agent docs preset
 			folder: `agent/docs/${agentId}`, // Create agent-specific folder
 			resource_type: agentDocResourceType,
 		});
@@ -131,7 +130,6 @@ const uploadPropertyMedia = async (filePath, agentId, propertyId) => {
 
 		// Use eager transformation for video compression/optimization
 		const uploadOptions = {
-			upload_preset: 'blkd1c3b',
 			folder: folder,
 			resource_type: isVideo ? 'video' : 'image', // explicitly set to avoid auto-detection
 		};
@@ -213,7 +211,6 @@ const uploadRoommatePostMedia = async (filePath, userId, postId) => {
 
 		const roommateResourceType = filePath && filePath.startsWith('data:image') ? 'image' : 'video';
 		const result = await cloudinary.uploader.upload(filePath, {
-			upload_preset: 'xlqs0c3b', // Roommate post media preset
 			folder: folder,
 			resource_type: roommateResourceType,
 		});
@@ -252,7 +249,6 @@ const uploadUserProfileImage = async (filePath, userId, type = 'avatar') => {
 		const folder = `user/profiles/${userId}/${type}`;
 
 		const result = await cloudinary.uploader.upload(filePath, {
-			upload_preset: 'wkcp2b3b', // User profile preset
 			folder: folder,
 			resource_type: 'image', // Force image type only
 			transformation: [
