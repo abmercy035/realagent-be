@@ -11,18 +11,27 @@ const User = require('../models/User');
 	*/
 const auth = async (req, res, next) => {
 	try {
-		// Get token from header
-		const authHeader = req.headers.authorization;
+		let token;
 
-		if (!authHeader || !authHeader.startsWith('Bearer ')) {
+		// First, check for token in cookies (preferred method)
+		if (req.cookies && req.cookies.token) {
+			token = req.cookies.token;
+		}
+		// Fallback to Authorization header (Bearer token)
+		else {
+			const authHeader = req.headers.authorization;
+			if (authHeader && authHeader.startsWith('Bearer ')) {
+				token = authHeader.split(' ')[1];
+			}
+		}
+
+		// If no token found in either location
+		if (!token) {
 			return res.status(401).json({
 				status: 'error',
 				message: 'No authentication token provided',
 			});
 		}
-
-		// Extract token
-		const token = authHeader.split(' ')[1];
 
 		// Verify token
 		const decoded = verifyToken(token);
@@ -63,14 +72,26 @@ const auth = async (req, res, next) => {
 	*/
 const optionalAuth = async (req, res, next) => {
 	try {
-		const authHeader = req.headers.authorization;
+		let token;
 
-		if (!authHeader || !authHeader.startsWith('Bearer ')) {
+		// Check for token in cookies first
+		if (req.cookies && req.cookies.token) {
+			token = req.cookies.token;
+		}
+		// Fallback to Authorization header
+		else {
+			const authHeader = req.headers.authorization;
+			if (authHeader && authHeader.startsWith('Bearer ')) {
+				token = authHeader.split(' ')[1];
+			}
+		}
+
+		// If no token, continue without user
+		if (!token) {
 			req.user = null;
 			return next();
 		}
 
-		const token = authHeader.split(' ')[1];
 		const decoded = verifyToken(token);
 		const user = await User.findById(decoded.userId);
 
