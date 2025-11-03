@@ -23,7 +23,7 @@ const register = async (req, res) => {
 		if (validationErr) {
 			return res.status(400).json({
 				status: 'error',
-				message: 'Validation failed',
+				message: validationErr,
 				errors: validationErr,
 			});
 		}
@@ -94,7 +94,7 @@ const register = async (req, res) => {
 		console.error('Registration error:', error);
 		res.status(500).json({
 			status: 'error',
-			message: 'Registration failed',
+			message: 'Registration failed | Please check your network and try again',
 			error: error.message,
 		});
 	}

@@ -8,10 +8,12 @@ const User = require('../models/User');
 exports.searchAgents = async (req, res) => {
   try {
     const { school, minRating, maxRating, location, name } = req.query;
+    console.log(school)
     const query = { role: 'agent' };
 
     if (school) {
-      query.school = { $regex: school, $options: 'i' };
+      const escapedSchool = school.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.school = { $regex: escapedSchool, $options: 'i' };
     }
     if (minRating || maxRating) {
       query.rating = {};
@@ -19,13 +21,21 @@ exports.searchAgents = async (req, res) => {
       if (maxRating) query.rating.$lte = Number(maxRating);
     }
     if (location) {
-      query['location.city'] = { $regex: location, $options: 'i' };
+      const escapedLocation = location.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.$or = [
+        { 'location.country': { $regex: escapedLocation, $options: 'i' } },
+        { 'location.state': { $regex: escapedLocation, $options: 'i' } },
+        { 'location.city': { $regex: escapedLocation, $options: 'i' } },
+        { 'location.landmark': { $regex: escapedLocation, $options: 'i' } }
+      ];
     }
     if (name) {
-      query.name = { $regex: name, $options: 'i' };
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.name = { $regex: escapedName, $options: 'i' };
     }
 
     const agents = await User.find(query).select('-password');
+
     res.json({ status: 'success', data: agents });
   } catch (err) {
     res.status(500).json({ status: 'error', message: 'Agent search failed', error: err.message });
