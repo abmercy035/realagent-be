@@ -46,7 +46,7 @@ const server = app.listen(PORT, () => {
 		};
 
 		// Seed plans before running cleanup
-		// seedDefaultPlans().catch((e) => console.error('Seeding default plans failed', e));
+		seedDefaultPlans().catch((e) => console.error('Seeding default plans failed', e));
 
 		const { runGraceCleanup } = require('./src/services/graceCleanup');
 		// Run once on startup
@@ -54,7 +54,7 @@ const server = app.listen(PORT, () => {
 		// Schedule hourly
 		setInterval(() => {
 			runGraceCleanup().catch((e) => console.error('Scheduled grace cleanup failed', e));
-		}, 1000 * 60 * 60);
+		}, 1000 * 360 * 60);
 	} catch (err) {
 		console.warn('Grace cleanup scheduler failed to start:', err.message || err);
 	}
