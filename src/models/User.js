@@ -120,6 +120,15 @@ const userSchema = new mongoose.Schema(
 			},
 			default: 'user',
 		},
+		adminRole: {
+			type: String,
+			enum: {
+				values: ['basic', 'mid', 'super'],
+				message: 'Admin role must be either basic, mid, or super',
+			},
+			default: null,
+			// Only applicable when role is 'admin'
+		},
 
 
 		// ===========================
@@ -438,6 +447,7 @@ userSchema.methods.toPublicProfile = function () {
 		school: this.school,
 		location: this.location,
 		role: this.role,
+		adminRole: this.adminRole, // Admin level: basic, mid, or super
 		verified: this.verified, // Agent document verification status (agents only)
 		status: this.status,
 		rating: this.rating,

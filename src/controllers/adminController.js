@@ -335,5 +335,272 @@ const analyticsMetric = async (req, res) => {
 	}
 };
 
+/**
+	* Promote user/agent to admin (super admin only)
+	* POST /api/admin/users/:id/promote-to-admin
+	*/
+const promoteToAdmin = async (req, res) => {
+	try {
+		const { id } = req.params;
+		const { adminRole } = req.body; // basic, mid, or super
+
+		// Validate admin role
+		if (!['basic', 'mid', 'super'].includes(adminRole)) {
+			return res.status(400).json({
+				status: 'error',
+				message: 'Invalid admin role. Must be basic, mid, or super',
+			});
+		}
+
+		const user = await User.findById(id);
+		if (!user) {
+			return res.status(404).json({ status: 'error', message: 'User not found' });
+		}
+
+		// Prevent promoting already admin (use changeAdminRole instead)
+		if (user.role === 'admin') {
+			return res.status(400).json({
+				status: 'error',
+				message: 'User is already an admin. Use change admin role endpoint to modify their level.',
+			});
+		}
+
+		// Update to admin
+		user.role = 'admin';
+		user.adminRole = adminRole;
+		await user.save();
+
+		res.json({
+			status: 'success',
+			message: `User promoted to ${adminRole} admin successfully`,
+			data: { user: user.toPublicProfile() },
+		});
+	} catch (err) {
+		console.error('promoteToAdmin error:', err);
+		res.status(500).json({ status: 'error', message: 'Failed to promote user', error: err.message });
+	}
+};
+
+/**
+	* Change admin role level (super admin only)
+	* PUT /api/admin/users/:id/admin-role
+	*/
+const changeAdminRole = async (req, res) => {
+	try {
+		const { id } = req.params;
+		const { adminRole } = req.body; // basic, mid, or super
+
+		// Validate admin role
+		if (!['basic', 'mid', 'super'].includes(adminRole)) {
+			return res.status(400).json({
+				status: 'error',
+				message: 'Invalid admin role. Must be basic, mid, or super',
+			});
+		}
+
+		const user = await User.findById(id);
+		if (!user) {
+			return res.status(404).json({ status: 'error', message: 'User not found' });
+		}
+
+		// Ensure user is an admin
+		if (user.role !== 'admin') {
+			return res.status(400).json({
+				status: 'error',
+				message: 'User is not an admin. Use promote-to-admin endpoint instead.',
+			});
+		}
+
+		// Prevent super admin from demoting themselves
+		if (user._id.toString() === req.user._id.toString() && adminRole !== 'super') {
+			return res.status(403).json({
+				status: 'error',
+				message: 'You cannot change your own admin role level',
+			});
+		}
+
+		user.adminRole = adminRole;
+		await user.save();
+
+		res.json({
+			status: 'success',
+			message: `Admin role changed to ${adminRole} successfully`,
+			data: { user: user.toPublicProfile() },
+		});
+	} catch (err) {
+		console.error('changeAdminRole error:', err);
+		res.status(500).json({ status: 'error', message: 'Failed to change admin role', error: err.message });
+	}
+};
+
+/**
+	* Demote admin to user/agent (super admin only)
+	* POST /api/admin/users/:id/demote-admin
+	*/
+const demoteAdmin = async (req, res) => {
+	try {
+		const { id } = req.params;
+		const { newRole } = req.body; // 'user' or 'agent'
+
+		// Validate new role
+		if (!['user', 'agent'].includes(newRole)) {
+			return res.status(400).json({
+				status: 'error',
+				message: 'Invalid role. Must be user or agent',
+			});
+		}
+
+		const user = await User.findById(id);
+		if (!user) {
+			return res.status(404).json({ status: 'error', message: 'User not found' });
+		}
+
+		// Ensure user is an admin
+		if (user.role !== 'admin') {
+			return res.status(400).json({
+				status: 'error',
+				message: 'User is not an admin',
+			});
+		}
+
+		// Prevent super admin from demoting themselves
+		if (user._id.toString() === req.user._id.toString()) {
+			return res.status(403).json({
+				status: 'error',
+				message: 'You cannot demote yourself',
+			});
+		}
+
+		// Demote admin
+		user.role = newRole;
+		user.adminRole = null; // Clear admin role
+		await user.save();
+
+		res.json({
+			status: 'success',
+			message: `Admin demoted to ${newRole} successfully`,
+			data: { user: user.toPublicProfile() },
+		});
+	} catch (err) {
+		console.error('demoteAdmin error:', err);
+		res.status(500).json({ status: 'error', message: 'Failed to demote admin', error: err.message });
+	}
+};
+
+/**
+	* Promote user to agent (mid/super admin)
+	* POST /api/admin/users/:id/promote-to-agent
+	*/
+const promoteToAgent = async (req, res) => {
+	try {
+		const { id } = req.params;
+
+		const user = await User.findById(id);
+		if (!user) {
+			return res.status(404).json({ status: 'error', message: 'User not found' });
+		}
+
+		if (user.role === 'agent') {
+			return res.status(400).json({
+				status: 'error',
+				message: 'User is already an agent',
+			});
+		}
+
+		if (user.role === 'admin') {
+			return res.status(400).json({
+				status: 'error',
+				message: 'Cannot change admin to agent. Demote admin first.',
+			});
+		}
+
+		user.role = 'agent';
+		await user.save();
+
+		res.json({
+			status: 'success',
+			message: 'User promoted to agent successfully',
+			data: { user: user.toPublicProfile() },
+		});
+	} catch (err) {
+		console.error('promoteToAgent error:', err);
+		res.status(500).json({ status: 'error', message: 'Failed to promote to agent', error: err.message });
+	}
+};
+
+/**
+	* Demote agent to user (mid/super admin)
+	* POST /api/admin/users/:id/demote-to-user
+	*/
+const demoteToUser = async (req, res) => {
+	try {
+		const { id } = req.params;
+
+		const user = await User.findById(id);
+		if (!user) {
+			return res.status(404).json({ status: 'error', message: 'User not found' });
+		}
+
+		if (user.role !== 'agent') {
+			return res.status(400).json({
+				status: 'error',
+				message: 'User is not an agent',
+			});
+		}
+
+		user.role = 'user';
+		await user.save();
+
+		res.json({
+			status: 'success',
+			message: 'Agent demoted to user successfully',
+			data: { user: user.toPublicProfile() },
+		});
+	} catch (err) {
+		console.error('demoteToUser error:', err);
+		res.status(500).json({ status: 'error', message: 'Failed to demote agent', error: err.message });
+	}
+};
+
+/**
+	* Get current admin's permissions
+	* GET /api/admin/permissions
+	*/
+const getMyPermissions = async (req, res) => {
+	try {
+		const { getAdminPermissions, ADMIN_PERMISSIONS } = require('../middleware/adminRoleCheck');
+
+		const permissions = getAdminPermissions(req);
+
+		res.json({
+			status: 'success',
+			data: {
+				role: req.user.role,
+				adminRole: req.user.adminRole,
+				permissions,
+				allPermissions: ADMIN_PERMISSIONS,
+			},
+		});
+	} catch (err) {
+		console.error('getMyPermissions error:', err);
+		res.status(500).json({ status: 'error', message: 'Failed to fetch permissions', error: err.message });
+	}
+};
+
 // add to exports
-module.exports = { listUsers, getUser, updateUser, analytics, triggerVerificationEmail, listContacts, analyticsMetric, deleteUser };
+module.exports = {
+	listUsers,
+	getUser,
+	updateUser,
+	analytics,
+	triggerVerificationEmail,
+	listContacts,
+	analyticsMetric,
+	deleteUser,
+	promoteToAdmin,
+	changeAdminRole,
+	demoteAdmin,
+	promoteToAgent,
+	demoteToUser,
+	getMyPermissions,
+};
