@@ -70,14 +70,15 @@ exports.createProperty = async (req, res) => {
 		}
 
 		// Ensure agent has completed document verification before listing
-		if (!req.user.verified) {
-			// Cleanup any uploaded media before rejecting
-			if (req.body.media) {
-				await cleanupUploadedMedia(req.body.media);
-			}
+		// if (!req.user.verified) {
+		// 	// Cleanup any uploaded media before rejecting
+		// 	if (req.body.media) {
+		// 		await cleanupUploadedMedia(req.body.media);
+		// 	}
 
-			return res.status(403).json({ success: false, error: 'Agent verification required. Please complete document verification to list properties.', code: 'AGENT_NOT_VERIFIED' });
-		}
+		// 	return res.status(403).json({ success: false, error: 'Agent verification required. Please complete document verification to list properties.', code: 'AGENT_NOT_VERIFIED' });
+		// }
+
 		const {
 			title,
 			description,
