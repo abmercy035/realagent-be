@@ -12,8 +12,46 @@ const { canCreateProperty } = require('../utils/planUtils');
 exports.createProperty = async (req, res) => {
 	try {
 		const agentId = req.user._id;
+
+		// Helper function to cleanup uploaded media
+		const cleanupUploadedMedia = async (media) => {
+			if (!media) return;
+			try {
+				const deletions = [];
+				if (Array.isArray(media.images)) {
+					for (const img of media.images) {
+						if (img?.publicId) {
+							deletions.push(cloudinary.deleteFromCloudinary(img.publicId).catch(err =>
+								console.error('Failed to delete image:', img.publicId, err)
+							));
+						}
+					}
+				}
+				if (Array.isArray(media.videos)) {
+					for (const vid of media.videos) {
+						if (vid?.publicId) {
+							deletions.push(cloudinary.deleteFromCloudinary(vid.publicId).catch(err =>
+								console.error('Failed to delete video:', vid.publicId, err)
+							));
+						}
+					}
+				}
+				if (deletions.length) {
+					await Promise.allSettled(deletions);
+					console.log(`Cleaned up ${deletions.length} uploaded media files`);
+				}
+			} catch (cleanupErr) {
+				console.error('Failed to cleanup uploaded media:', cleanupErr);
+			}
+		};
+
 		// Ensure user email is verified before allowing listing
 		if (!req.user.verified) {
+			// Cleanup any uploaded media before rejecting
+			if (req.body.media) {
+				await cleanupUploadedMedia(req.body.media);
+			}
+
 			// Attempt to send verification email and inform client
 			try {
 				const { sendVerificationEmail } = require('../utils/email');
@@ -68,11 +106,15 @@ exports.createProperty = async (req, res) => {
 
 		// Server-side validation: description length and minimum media count
 		if (!description || String(description).trim().length < 50) {
+			// Cleanup uploaded media before rejecting
+			await cleanupUploadedMedia(media);
 			return res.status(400).json({ success: false, error: 'Description must be at least 50 characters long.' });
 		}
 
 		const totalMediaCount = (Array.isArray(media?.images) ? media.images.length : 0) + (Array.isArray(media?.videos) ? media.videos.length : 0);
 		if (totalMediaCount < 2) {
+			// Cleanup uploaded media before rejecting
+			await cleanupUploadedMedia(media);
 			return res.status(400).json({ success: false, error: 'Please provide at least 2 media items (images/videos).' });
 		}
 
@@ -133,26 +175,42 @@ exports.createProperty = async (req, res) => {
 		res.status(201).json({ success: true, data: property });
 	} catch (error) {
 		console.error('Create property error:', error);
-		// If we have uploaded media in the request body, attempt cleanup to avoid orphaned cloud files
-		try {
-			const mediaForCleanup = req.body?.media;
-			const imageFiles = Array.isArray(mediaForCleanup?.images) ? mediaForCleanup.images : [];
-			const videoFiles = Array.isArray(mediaForCleanup?.videos) ? mediaForCleanup.videos : [];
-			const deletions = [];
-			for (const img of imageFiles) {
-				if (img?.publicId) {
-					deletions.push(cloudinary.deleteFromCloudinary(img.publicId).catch((e) => console.error('Failed to delete image on create failure', e)));
+
+		// Cleanup uploaded media on any error using our helper function
+		// Note: cleanupUploadedMedia is defined inside the try block, so we need to redefine it here
+		const cleanupMedia = async (media) => {
+			if (!media) return;
+			try {
+				const deletions = [];
+				if (Array.isArray(media.images)) {
+					for (const img of media.images) {
+						if (img?.publicId) {
+							deletions.push(cloudinary.deleteFromCloudinary(img.publicId).catch(err =>
+								console.error('Failed to delete image:', img.publicId, err)
+							));
+						}
+					}
 				}
-			}
-			for (const vid of videoFiles) {
-				if (vid?.publicId) {
-					deletions.push(cloudinary.deleteFromCloudinary(vid.publicId).catch((e) => console.error('Failed to delete video on create failure', e)));
+				if (Array.isArray(media.videos)) {
+					for (const vid of media.videos) {
+						if (vid?.publicId) {
+							deletions.push(cloudinary.deleteFromCloudinary(vid.publicId).catch(err =>
+								console.error('Failed to delete video:', vid.publicId, err)
+							));
+						}
+					}
 				}
+				if (deletions.length) {
+					await Promise.allSettled(deletions);
+					console.log(`Cleaned up ${deletions.length} uploaded media files after error`);
+				}
+			} catch (cleanupErr) {
+				console.error('Failed to cleanup uploaded media:', cleanupErr);
 			}
-			if (deletions.length > 0) await Promise.allSettled(deletions);
-		} catch (cleanupError) {
-			console.error('Media cleanup error after create failure:', cleanupError);
-		}
+		};
+
+		// Attempt cleanup
+		await cleanupMedia(req.body?.media);
 
 		// Mongoose validation error
 		if (error.name === 'ValidationError' && error.errors) {
