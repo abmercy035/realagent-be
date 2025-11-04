@@ -40,5 +40,13 @@ module.exports = {
       postLimit: 50,
       description: 'Premium plan — large posting limits',
     },
+
+    enterprise: {
+      name: 'enterprise',
+      price: 50000,
+      currency: 'NGN',
+      postLimit: -1, // unlimited
+      description: 'Enterprise plan — unlimited property posts with priority support',
+    },
   },
 };

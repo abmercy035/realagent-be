@@ -10,7 +10,6 @@ async function enforcePostLimit(req, res, next) {
 		if (!user) {
 			return res.status(401).json({ success: false, message: 'Unauthorized' });
 		}
-
 		const result = await canCreateProperty(user);
 		// controller will delete the newly created property if it causes the
 		// total to exceed the allowed limit during grace (per product rule).

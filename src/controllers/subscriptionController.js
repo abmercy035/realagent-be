@@ -38,7 +38,7 @@ exports.subscribe = async (req, res) => {
 		if (!user) return res.status(401).json({ status: 'error', message: 'Not authenticated' });
 
 		const {
-			plan = 'basic',
+			plan = 'pro',
 			provider,
 			customerId,
 			subscriptionId,

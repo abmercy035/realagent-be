@@ -78,7 +78,7 @@ exports.createRating = async (req, res) => {
 		});
 
 		// Populate user info
-		await newRating.populate('user', 'name profilePicture');
+		await newRating.populate('user', 'name avatar');
 
 		res.status(201).json({
 			success: true,
@@ -211,7 +211,7 @@ exports.updateRating = async (req, res) => {
 		if (review !== undefined) existingRating.review = review;
 
 		await existingRating.save();
-		await existingRating.populate('user', 'name profilePicture');
+		await existingRating.populate('user', 'name avatar');
 
 		res.status(200).json({
 			success: true,
@@ -323,7 +323,7 @@ exports.getMyReviews = async (req, res) => {
 		const skip = (page - 1) * limit;
 
 		const reviews = await Rating.find({ user: req.user._id, status: 'active' })
-			.populate('agent', 'name profilePicture verificationStatus')
+			.populate('agent', 'name avatar verificationStatus')
 			.populate('property', 'title')
 			.sort({ createdAt: -1 })
 			.skip(skip)

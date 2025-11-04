@@ -93,30 +93,20 @@ const userSchema = new mongoose.Schema(
 			}
 		},
 
-		// Student-specific email for student agents
+		// Student-specific email for student agents (optional secondary email)
 		studentEmail: {
 			type: String,
 			trim: true,
 			lowercase: true,
-		},
-		studentEmailVerified: {
-			type: Boolean,
-			default: false,
-			index: true,
-		},
-		studentVerificationToken: {
-			type: String,
-			select: false,
-		},
-		studentVerificationTokenExpires: {
-			type: Date,
-			select: false,
 		},
 		yearsOfExperience: {
 			type: String,
 		},
 		languages: {
 			type: String,
+		},
+		specializations: {
+			type: [String],
 		},
 
 		// ===========================
@@ -138,7 +128,7 @@ const userSchema = new mongoose.Schema(
 		subscription: {
 			plan: {
 				type: String,
-				enum: ['free', 'basic', 'pro', 'enterprise'],
+				enum: ['free', 'pro', 'premium', 'enterprise'],
 				default: 'free',
 			},
 			status: {
@@ -178,7 +168,9 @@ const userSchema = new mongoose.Schema(
 		// ===========================
 		// VERIFICATION & STATUS
 		// ===========================
-		verified: {
+
+		// Email verification (for all users)
+		emailVerified: {
 			type: Boolean,
 			default: false,
 			index: true,
@@ -190,6 +182,13 @@ const userSchema = new mongoose.Schema(
 		verificationTokenExpires: {
 			type: Date,
 			select: false,
+		},
+
+		// Agent verification (for agents only - after document submission)
+		verified: {
+			type: Boolean,
+			default: false,
+			index: true,
 		},
 		status: {
 			type: String,
@@ -383,21 +382,6 @@ userSchema.methods.generateVerificationToken = function () {
 	* Generate student email verification token (for student agents)
 	* @returns {string} unhashed token to send via email
 	*/
-userSchema.methods.generateStudentVerificationToken = function () {
-	const token = crypto.randomBytes(32).toString('hex');
-
-	// Hash token before storing
-	this.studentVerificationToken = crypto
-		.createHash('sha256')
-		.update(token)
-		.digest('hex');
-
-	// Token expires in 24 hours
-	this.studentVerificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000;
-
-	return token;
-};
-
 /**
 	* Generate password reset token
 	* Token is hashed before storing in database
@@ -446,18 +430,21 @@ userSchema.methods.toPublicProfile = function () {
 		profile_pics: this.avatar,
 		profile_picture: this.avatar,
 		username: this.username,
+		agentIdNumber: this.agentIdNumber,
 		email: this.email,
+		emailVerified: this.emailVerified, // Email verification status for all users
 		bio: this.bio,
 		phone: this.phone,
 		school: this.school,
 		location: this.location,
 		role: this.role,
-		verified: this.verified,
+		verified: this.verified, // Agent document verification status (agents only)
 		status: this.status,
 		rating: this.rating,
 		reviewCount: this.reviewCount,
 		languages: this.languages,
 		socialMedia: this.socialMedia,
+		specializations: this.specializations,
 		yearsOfExperience,
 		createdAt: this.createdAt,
 		lastLogin: this.lastLogin,

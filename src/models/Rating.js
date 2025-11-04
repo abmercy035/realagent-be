@@ -126,7 +126,7 @@ ratingSchema.statics.getAgentReviews = async function (agentId, page = 1, limit 
 	const skip = (page - 1) * limit;
 
 	const reviews = await this.find({ agent: agentId, status: 'active' })
-		.populate('user', 'name profilePicture')
+		.populate('user', 'name avatar')
 		.populate('property', 'title')
 		.sort({ createdAt: -1 })
 		.skip(skip)

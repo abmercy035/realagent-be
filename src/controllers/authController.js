@@ -6,7 +6,7 @@
 const { isInValiData, isNotValidata } = require('validata-jsts');
 const User = require('../models/User');
 const { generateToken } = require('../utils/jwt');
-const { validateRegistration, validateLogin, sanitizeInput, isValidPhone } = require('../utils/validators');
+const { sanitizeInput, isValidPhone } = require('../utils/validators');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/email');
 
 /**
@@ -50,32 +50,22 @@ const register = async (req, res) => {
 			location,
 		});
 
-		// If registering as student agent, record studentEmail and send student verification
-		let studentToken = null;
+		// If registering as student agent, store studentEmail as secondary contact
 		if (role === 'agent' && agentType === 'student' && studentEmail) {
 			user.studentEmail = studentEmail.toLowerCase();
-			studentToken = user.generateStudentVerificationToken();
 		}
 
-		// Generate account verification token
+		// Generate email verification token
 		const verificationToken = user.generateVerificationToken();
 
 		// Save user
 		await user.save();
 
-		// Send verification emails
+		// Send verification email to main email address
 		try {
 			await sendVerificationEmail(user.email, user.name, verificationToken);
 		} catch (emailError) {
 			console.error('Failed to send verification email:', emailError);
-		}
-
-		if (studentToken) {
-			try {
-				await sendVerificationEmail(user.studentEmail, user.name, studentToken);
-			} catch (emailError) {
-				console.error('Failed to send student verification email:', emailError);
-			}
 		}
 
 		// Generate JWT token
@@ -239,7 +229,7 @@ const updateProfile = async (req, res) => {
 			return res.status(401).json({ status: 'error', message: 'Unauthorized' });
 		}
 
-		const allowedFields = ['name', 'phone', 'school', 'location', 'languages', 'socialMedia'];
+		const allowedFields = ['name', 'phone', 'school', 'bio', 'location', 'languages', 'specializations', 'socialMedia', "yearsOfExperience"];
 		const updates = {};
 
 		console.log(req.body)
@@ -327,7 +317,7 @@ const logout = async (req, res) => {
 const verifyEmail = async (req, res) => {
 	try {
 		const { token } = req.body;
-
+		console.log(token)
 		if (!token) {
 			return res.status(400).json({
 				status: 'error',
@@ -339,37 +329,23 @@ const verifyEmail = async (req, res) => {
 		const crypto = require('crypto');
 		const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
-		// Try to find account verification token first
-		let user = await User.findOne({
+		// Find user by verification token
+		const user = await User.findOne({
 			verificationToken: hashedToken,
 			verificationTokenExpires: { $gt: Date.now() },
 		}).select('+verificationToken +verificationTokenExpires');
-
-		if (user) {
-			user.verified = true;
-			user.verificationToken = undefined;
-			user.verificationTokenExpires = undefined;
-			await user.save();
-
-			return res.status(200).json({ status: 'success', message: 'Email verified successfully' });
-		}
-
-		// Otherwise check for student email verification
-		user = await User.findOne({
-			studentVerificationToken: hashedToken,
-			studentVerificationTokenExpires: { $gt: Date.now() },
-		}).select('+studentVerificationToken +studentVerificationTokenExpires');
 
 		if (!user) {
 			return res.status(400).json({ status: 'error', message: 'Invalid or expired verification token' });
 		}
 
-		user.studentEmailVerified = true;
-		user.studentVerificationToken = undefined;
-		user.studentVerificationTokenExpires = undefined;
+		// Set email as verified (applies to all users including student agents)
+		user.emailVerified = true;
+		user.verificationToken = undefined;
+		user.verificationTokenExpires = undefined;
 		await user.save();
 
-		res.status(200).json({ status: 'success', message: 'Student email verified successfully' });
+		res.status(200).json({ status: 'success', message: 'Email verified successfully' });
 	} catch (error) {
 		console.error('Email verification error:', error);
 		res.status(500).json({

@@ -13,6 +13,7 @@ exports.createProperty = async (req, res) => {
 	try {
 		const agentId = req.user._id;
 
+		// return
 		// Helper function to cleanup uploaded media
 		const cleanupUploadedMedia = async (media) => {
 			if (!media) return;
@@ -45,8 +46,9 @@ exports.createProperty = async (req, res) => {
 			}
 		};
 
+
 		// Ensure user email is verified before allowing listing
-		if (!req.user.verified) {
+		if (!req.user.emailVerified) {
 			// Cleanup any uploaded media before rejecting
 			if (req.body.media) {
 				await cleanupUploadedMedia(req.body.media);
@@ -65,6 +67,16 @@ exports.createProperty = async (req, res) => {
 			}
 
 			return res.status(403).json({ success: false, error: 'Email not verified. Verification email sent.', code: 'EMAIL_NOT_VERIFIED' });
+		}
+
+		// Ensure agent has completed document verification before listing
+		if (!req.user.verified) {
+			// Cleanup any uploaded media before rejecting
+			if (req.body.media) {
+				await cleanupUploadedMedia(req.body.media);
+			}
+
+			return res.status(403).json({ success: false, error: 'Agent verification required. Please complete document verification to list properties.', code: 'AGENT_NOT_VERIFIED' });
 		}
 		const {
 			title,
@@ -220,6 +232,7 @@ exports.createProperty = async (req, res) => {
 			}
 			return res.status(400).json({ success: false, error: error._message || 'Validation failed', errors });
 		}
+
 		res.status(500).json({ success: false, error: 'Failed to create property' });
 	}
 };
@@ -272,7 +285,7 @@ exports.getAllProperties = async (req, res) => {
 		const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
 		const properties = await Property.find(query)
-			.populate('agent', 'name email phone profilePicture verificationStatus')
+			.populate('agent', 'name email phone avatar verificationStatus')
 			.sort(sort)
 			.skip(skip)
 			.limit(Number(limit))
@@ -310,7 +323,7 @@ exports.getPropertyById = async (req, res) => {
 		const userId = req.user ? req.user._id : null;
 
 		const property = await Property.findById(id)
-			.populate('agent', 'name email phone profilePicture verificationStatus bio')
+			.populate('agent', 'name email phone avatar agentIdNumber verificationStatus bio')
 			.populate({
 				path: 'metrics.viewedBy.userId',
 				select: 'name',

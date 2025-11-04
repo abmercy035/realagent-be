@@ -431,7 +431,7 @@ const sendWelcomeEmail = async (email, name) => {
 	* Send email verification
 	*/
 const sendVerificationEmail = async (email, name, verificationToken) => {
-	const verificationLink = `${process.env.FRONTEND_URL}/auth/verify-email/${verificationToken}`;
+	const verificationLink = `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`;
 	return await sendMail(email, { name, verificationLink }, 'verification');
 };
 

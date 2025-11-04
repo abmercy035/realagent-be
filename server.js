@@ -33,6 +33,7 @@ const server = app.listen(PORT, () => {
 					{ name: 'trial', displayName: 'Trial', price: 0, currency: 'NGN', postLimit: 15, description: 'Trial plan' },
 					{ name: 'pro', displayName: 'Pro', price: 5000, currency: 'NGN', postLimit: 15, description: 'Pro plan' },
 					{ name: 'premium', displayName: 'Premium', price: 15000, currency: 'NGN', postLimit: 50, description: 'Premium plan' },
+					{ name: 'enterprise', displayName: 'Enterprise', price: 50000, currency: 'NGN', postLimit: -1, description: 'Enterprise plan with unlimited listings' },
 				];
 
 				for (const p of defaults) {

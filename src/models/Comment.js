@@ -264,14 +264,14 @@ commentSchema.statics.getPropertyComments = async function (propertyId, page = 1
 		parentComment: null, // Only top-level comments
 		status: 'active',
 	})
-		.populate('user', 'name email profilePicture role')
+		.populate('user', 'name email avatar role')
 		.populate({
 			path: 'replies',
 			match: { status: 'active' },
 			options: { sort: { createdAt: 1 } },
 			populate: {
 				path: 'user',
-				select: 'name email profilePicture role',
+				select: 'name email avatar role',
 			},
 		})
 		.sort({ createdAt: -1 })

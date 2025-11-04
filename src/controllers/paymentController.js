@@ -133,7 +133,7 @@ exports.webhook = async (req, res) => {
           const user = await User.findById(metadata.userId);
           if (user) {
             const now = new Date();
-            const plan = metadata.plan || user.subscription?.plan || 'basic';
+            const plan = metadata.plan || user.subscription?.plan || 'pro';
             user.subscription = user.subscription || {};
             user.subscription.plan = plan;
             user.subscription.status = 'active';
@@ -160,7 +160,7 @@ exports.webhook = async (req, res) => {
           const user = await User.findOne({ email: customerEmail });
           if (user) {
             const now = new Date();
-            const plan = (body.data.metadata && body.data.metadata.plan) || user.subscription?.plan || 'basic';
+            const plan = (body.data.metadata && body.data.metadata.plan) || user.subscription?.plan || 'pro';
             user.subscription = user.subscription || {};
             user.subscription.plan = plan;
             user.subscription.status = 'active';

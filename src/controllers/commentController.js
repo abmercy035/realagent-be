@@ -85,7 +85,7 @@ exports.createComment = async (req, res) => {
 		});
 
 		// Populate user data
-		await comment.populate('user', 'name email profilePicture role');
+		await comment.populate('user', 'name email avatar role');
 
 		res.status(201).json({
 			success: true,
@@ -137,7 +137,7 @@ exports.editComment = async (req, res) => {
 
 		// Edit comment
 		await comment.editContent(content);
-		await comment.populate('user', 'name email profilePicture role');
+		await comment.populate('user', 'name email avatar role');
 
 		res.status(200).json({
 			success: true,
