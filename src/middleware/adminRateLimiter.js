@@ -1,4 +1,4 @@
-const rateLimit = require('express-rate-limit');
+const { rateLimit } = require('express-rate-limit');
 
 // Slightly stricter limits for admin endpoints
 const adminLimiter = rateLimit({

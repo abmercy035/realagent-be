@@ -206,9 +206,12 @@ const propertySchema = new mongoose.Schema(
 					},
 					publicId: {
 						type: String,
-						required: true,
+						default: null,
 					},
+					width: Number,
+					height: Number,
 					caption: String,
+					type: { type: String },
 					isPrimary: {
 						type: Boolean,
 						default: false,
@@ -223,8 +226,11 @@ const propertySchema = new mongoose.Schema(
 					},
 					publicId: {
 						type: String,
-						required: true,
+						default: null,
 					},
+					type: { type: String },
+					width: Number,
+					height: Number,
 					thumbnail: String,
 					duration: Number,
 				},
@@ -489,9 +495,13 @@ propertySchema.virtual('primaryImage').get(function () {
 });
 
 // Check if property is available
+propertySchema.virtual('available').get(function () {
+	return this.vacancy?.status === 'vacant' && this.status === 'active';
+});
+
+// Legacy virtual for backwards compatibility
 propertySchema.virtual('isAvailable').get(function () {
-	return true;
-	// return this.vacancy.status === 'vacant' && this.status === 'active';
+	return this.vacancy?.status === 'vacant' && this.status === 'active';
 });
 
 // ===========================

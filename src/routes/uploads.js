@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const router = express.Router();
 const cloudinary = require('../config/cloudinary').cloudinary;
+const uploadLimiter = require('../middleware/uploadRateLimiter');
 
 // ensuring tmp folder exists
 const tmpDir = path.join(__dirname, '..', '..', 'tmp', 'uploads');
@@ -27,12 +28,11 @@ const upload = multer({
 	},
 });
 
-// POST /api/uploads/property-media
-router.post('/property-media', upload.fields([{ name: 'images', maxCount: 4 }, { name: 'video', maxCount: 1 }]), async (req, res) => {
+// POST /api/uploads/property-media - Updated to 6 images + 2 videos
+router.post('/property-media', uploadLimiter, upload.fields([{ name: 'images', maxCount: 6 }, { name: 'videos', maxCount: 2 }]), async (req, res) => {
 	try {
 		const agentId = req.body.agentId || req.user?.id || 'agent-1';
 		const propertyId = req.body.propertyId || null;
-
 		// Server-side: validate file sizes per-field (images smaller cap, videos larger). If any file violates, delete temps and return 400.
 		const oversized = [];
 		if (req.files?.images) {
@@ -45,13 +45,14 @@ router.post('/property-media', upload.fields([{ name: 'images', maxCount: 4 }, {
 				}
 			}
 		}
-		if (req.files?.video && req.files.video[0]) {
-			const f = req.files.video[0];
-			try {
-				const stat = fs.statSync(f.path);
-				if (stat.size > MAX_VIDEO_SIZE) oversized.push({ field: 'video', name: f.originalname, size: stat.size });
-			} catch (e) {
-				console.error('Failed to stat video file', e);
+		if (req.files?.videos) {
+			for (const f of req.files.videos) {
+				try {
+					const stat = fs.statSync(f.path);
+					if (stat.size > MAX_VIDEO_SIZE) oversized.push({ field: 'video', name: f.originalname, size: stat.size });
+				} catch (e) {
+					console.error('Failed to stat video file', e);
+				}
 			}
 		}
 
@@ -59,7 +60,7 @@ router.post('/property-media', upload.fields([{ name: 'images', maxCount: 4 }, {
 			// Cleanup temp files
 			try {
 				if (req.files?.images) req.files.images.forEach((f) => { try { fs.unlinkSync(f.path); } catch (e) { } });
-				if (req.files?.video) req.files.video.forEach((f) => { try { fs.unlinkSync(f.path); } catch (e) { } });
+				if (req.files?.videos) req.files.videos.forEach((f) => { try { fs.unlinkSync(f.path); } catch (e) { } });
 			} catch (e) { /* ignore */ }
 			const details = oversized.map(o => `${o.field}:${o.name} (${Math.round(o.size / 1024)}KB)`).join(', ');
 			return res.status(400).json({ error: `One or more files exceed allowed size limits: ${details}` });
@@ -73,42 +74,60 @@ router.post('/property-media', upload.fields([{ name: 'images', maxCount: 4 }, {
 					resource_type: 'image',
 					transformation: [{ quality: 'auto', fetch_format: 'auto' }],
 				});
-				images.push({ url: result.secure_url, publicId: result.public_id, format: result.format, width: result.width, height: result.height });
+				images.push({ url: result.secure_url, publicId: result.public_id, format: result.format, width: result.width, height: result.height, type: "image" });
 				// removing temp file
 				try { fs.unlinkSync(file.path); } catch (e) { /* ignore */ }
 			}
 		}
 
 		const videos = [];
-		if (req.files?.video && req.files.video[0]) {
-			const file = req.files.video[0];
-			const result = await cloudinary.uploader.upload(file.path, {
-				folder: `agent/properties/${agentId}/${propertyId || 'temp'}`,
-				resource_type: 'video',
-				eager: [
-					{
-						width: 720,
-						crop: 'scale',
-						quality: 'auto:eco',
-						video_codec: 'auto',
-						fps: '24',
-						format: 'mp4',
-					},
-				],
-			});
+		if (req.files?.videos) {
+			for (const file of req.files.videos) {
+				// Request an optimized MP4 AND a JPG thumbnail for the uploaded video.
+				// The eager array returns entries for each transformation; we'll prefer a JPG eager (thumbnail)
+				// for the poster image and the optimized mp4 for playback.
+				const result = await cloudinary.uploader.upload(file.path, {
+					folder: `agent/properties/${agentId}/${propertyId || 'temp'}`,
+					resource_type: 'video',
+					eager: [
+						// optimized MP4 for playback
+						{
+							width: 720,
+							crop: 'scale',
+							quality: 'auto:eco',
+							video_codec: 'auto',
+							fps: '24',
+							format: 'mp4',
+						},
+						// JPG thumbnail (single frame) to use as poster image
+						{
+							width: 720,
+							height: 406,
+							crop: 'fill',
+							gravity: 'auto',
+							fetch_format: 'auto',
+							quality: 'auto',
+							format: 'jpg',
+						},
+					],
+				});
 
-			const optimized = result.eager && result.eager[0] ? result.eager[0] : result;
-			// Attempt to extract thumbnail and duration (if available)
-			const thumbnail = optimized.secure_url || result.secure_url;
-			const duration = optimized.duration || result.duration || null;
-			videos.push({ url: optimized.secure_url, publicId: result.public_id, format: optimized.format || result.format, width: optimized.width, height: optimized.height, thumbnail, duration });
-			try { fs.unlinkSync(file.path); } catch (e) { /* ignore */ }
+				// Find the optimized mp4 and jpg thumbnail in eager results if present
+				const eagerList = Array.isArray(result.eager) ? result.eager : [];
+				const optimized = eagerList.find(e => String(e.format).toLowerCase() === 'mp4') || result;
+				const thumbnailItem = eagerList.find(e => String(e.format).toLowerCase() === 'jpg' || String(e.format).toLowerCase() === 'jpeg') || null;
+
+				const thumbnail = thumbnailItem?.secure_url ?? optimized?.secure_url ?? result.secure_url;
+				const duration = (optimized && (optimized.duration || result.duration)) || null;
+				videos.push({ url: optimized.secure_url, publicId: result.public_id, format: optimized.format || result.format, width: optimized.width, height: optimized.height, thumbnail, duration, type: "video" });
+				try { fs.unlinkSync(file.path); } catch (e) { /* ignore */ }
+			}
 		}
 
-		console.log({ images, videos });
+		console.log({ images, videos }, 111);
 		return res.json({ images, videos });
 	} catch (err) {
-		console.error('Upload error:', err);
+		console.error('Upload error:', err.message);
 		return res.status(500).json({ error: 'Upload failed' });
 	}
 });

@@ -15,6 +15,7 @@ const {
 	getUserComments,
 } = require('../controllers/commentController');
 const { auth } = require('../middleware/auth');
+const { commentCreateLimiter, commentUpdateLimiter } = require('../middleware/commentRateLimiter');
 
 /**
 	* @route   GET /api/comments/property/:propertyId
@@ -35,14 +36,14 @@ router.get('/user/my-comments', auth, getUserComments);
 	* @desc    Create a comment or reply
 	* @access  Private
 	*/
-router.post('/', auth, createComment);
+router.post('/', auth, commentCreateLimiter, createComment);
 
 /**
 	* @route   PUT /api/comments/:id
 	* @desc    Edit a comment
 	* @access  Private
 	*/
-router.put('/:id', auth, editComment);
+router.put('/:id', auth, commentUpdateLimiter, editComment);
 
 /**
 	* @route   DELETE /api/comments/:id

@@ -187,7 +187,7 @@ exports.createProperty = async (req, res) => {
 
 		res.status(201).json({ success: true, data: property });
 	} catch (error) {
-		console.error('Create property error:', error);
+		console.error('Create property error:', error.message);
 
 		// Cleanup uploaded media on any error using our helper function
 		// Note: cleanupUploadedMedia is defined inside the try block, so we need to redefine it here
@@ -387,6 +387,157 @@ exports.getPropertyById = async (req, res) => {
 			success: false,
 			error: 'Failed to fetch property',
 		});
+	}
+};
+
+/**
+	* @route   GET /api/properties/:id/stats
+	* @desc    Get per-property analytics (last 7 days views, growth, conversion, recent inquiries)
+	* @access  Private (Agent owner or Admin)
+	*/
+exports.getPropertyStatsById = async (req, res) => {
+	try {
+		const { id } = req.params;
+		const userId = req.user ? req.user._id : null;
+
+		const property = await Property.findById(id).lean();
+		if (!property) {
+			return res.status(404).json({ success: false, error: 'Property not found' });
+		}
+
+		// Only allow owner or admin to view detailed stats
+		if (!req.user || (req.user.role !== 'admin' && property.agent.toString() !== req.user._id.toString())) {
+			return res.status(403).json({ success: false, error: 'Not authorized to view property analytics' });
+		}
+
+		// Prepare last 14 days buckets to compute current week and previous week
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
+
+		const days = [];
+		for (let i = 6; i >= 0; i--) {
+			const d = new Date(today);
+			d.setDate(d.getDate() - i);
+			days.push({ date: d, key: d.toISOString().slice(0, 10), label: d.toLocaleDateString('en-US', { weekday: 'short' }), views: 0 });
+		}
+
+		// Also prepare previous week range for growth calculation
+		const prevStart = new Date(today);
+		prevStart.setDate(prevStart.getDate() - 14);
+		prevStart.setHours(0, 0, 0, 0);
+
+		const prevEnd = new Date(today);
+		prevEnd.setDate(prevEnd.getDate() - 7);
+		prevEnd.setHours(23, 59, 59, 999);
+
+		const viewedBy = (property.metrics && Array.isArray(property.metrics.viewedBy)) ? property.metrics.viewedBy : [];
+
+		// If we have detailed viewedBy timestamps, bucket them; otherwise we fall back to zeros for daily breakdown
+		if (viewedBy.length > 0) {
+			// Build 14-day buckets map (keyed by YYYY-MM-DD)
+			const buckets = {};
+			for (let i = 13; i >= 0; i--) {
+				const d = new Date(today);
+				d.setDate(d.getDate() - i);
+				buckets[d.toISOString().slice(0, 10)] = 0;
+			}
+
+			for (const entry of viewedBy) {
+				try {
+					const viewedAt = entry.viewedAt ? new Date(entry.viewedAt) : null;
+					if (!viewedAt) continue;
+					const key = viewedAt.toISOString().slice(0, 10);
+					const count = typeof entry.viewCount === 'number' ? entry.viewCount : 1;
+					if (key in buckets) buckets[key] += count;
+				} catch (e) {
+					// ignore malformed entries
+				}
+			}
+
+			// Fill days array from buckets (last 7 days)
+			for (const d of days) {
+				d.views = buckets[d.key] || 0;
+			}
+
+			// compute previous week sum
+			let prevWeekSum = 0;
+			for (let i = 7; i < 14; i++) {
+				const d = new Date(today);
+				d.setDate(d.getDate() - i);
+				const key = d.toISOString().slice(0, 10);
+				prevWeekSum += buckets[key] || 0;
+			}
+
+			const currentWeekSum = days.reduce((s, x) => s + x.views, 0);
+
+			const viewsGrowth = prevWeekSum === 0 ? (currentWeekSum > 0 ? 100 : 0) : Number((((currentWeekSum - prevWeekSum) / prevWeekSum) * 100).toFixed(1));
+
+			// Conversion: compute inquiries in the last 7 days
+			let inquiriesLast7 = 0;
+			try {
+				inquiriesLast7 = await ViewingRequest.countDocuments({ property: id, createdAt: { $gte: days[0].date } });
+			} catch (e) {
+				inquiriesLast7 = 0;
+			}
+
+			const conversionRate = (currentWeekSum > 0) ? Number(((inquiriesLast7 / currentWeekSum) * 100).toFixed(1)) : 0;
+
+			// Recent inquiries (latest 5)
+			let recentInquiries = [];
+			try {
+				recentInquiries = await ViewingRequest.find({ property: id }).sort({ createdAt: -1 }).limit(5).lean();
+			} catch (e) {
+				recentInquiries = [];
+			}
+
+			return res.status(200).json({
+				success: true,
+				data: {
+					viewsByDay: days.map((d) => ({ day: d.label, views: d.views })),
+					viewsThisWeek: currentWeekSum,
+					viewsGrowth,
+					conversionRate,
+					averageTimeOnPage: property.metrics && property.metrics.averageTimeOnPage ? property.metrics.averageTimeOnPage : null,
+					recentInquiries: recentInquiries.map((r) => ({ id: r._id, user: r.user ? (r.user.name || r.user) : (r.userId || null), message: r.message || r.note || '', date: r.createdAt })),
+				},
+			});
+		}
+
+		// Fallback when viewedBy is not present: return totals and zeros for daily
+		const fallbackDays = days.map((d) => ({ day: d.label, views: 0 }));
+		const totalViews = property.metrics?.views || 0;
+
+		// Try to compute inquiries in last 7 days and conversion against totalViews
+		let inquiriesLast7 = 0;
+		try {
+			inquiriesLast7 = await ViewingRequest.countDocuments({ property: id, createdAt: { $gte: days[0].date } });
+		} catch (e) {
+			inquiriesLast7 = 0;
+		}
+
+		const conversionRate = totalViews > 0 ? Number(((inquiriesLast7 / totalViews) * 100).toFixed(1)) : 0;
+
+		let recentInquiries = [];
+		try {
+			recentInquiries = await ViewingRequest.find({ property: id }).sort({ createdAt: -1 }).limit(5).lean();
+		} catch (e) {
+			recentInquiries = [];
+		}
+
+		return res.status(200).json({
+			success: true,
+			data: {
+				viewsByDay: fallbackDays,
+				viewsThisWeek: 0,
+				viewsGrowth: 0,
+				conversionRate,
+				averageTimeOnPage: property.metrics && property.metrics.averageTimeOnPage ? property.metrics.averageTimeOnPage : null,
+				recentInquiries: recentInquiries.map((r) => ({ id: r._id, user: r.user ? (r.user.name || r.user) : (r.userId || null), message: r.message || r.note || '', date: r.createdAt })),
+			},
+		});
+	} catch (error) {
+		console.error('Get property stats by id error:', error);
+		res.status(500).json({ success: false, error: 'Failed to fetch property statistics' });
 	}
 };
 
@@ -748,6 +899,101 @@ exports.getPropertiesOccupiedByUser = async (req, res) => {
 		res.status(200).json({ data: properties });
 	} catch (error) {
 		res.status(500).json({ error: 'Failed to fetch occupied properties' });
+	}
+};
+
+/**
+	* @route   PUT /api/properties/:id
+	* @desc    Update property listing
+	* @access  Private (Agent - Owner only)
+	*/
+exports.updateProperty = async (req, res) => {
+	try {
+		const propertyId = req.params.id;
+		const userId = req.user.id;
+
+		// Find property and check ownership
+		const property = await Property.findById(propertyId);
+		if (!property) {
+			return res.status(404).json({
+				success: false,
+				error: 'Property not found',
+			});
+		}
+
+
+		// Check if user is the owner
+		if (property.agent.toString() !== userId) {
+			return res.status(403).json({
+				success: false,
+				error: 'Not authorized to update this property',
+			});
+		}
+
+		console.log(req.body)
+		// Update property
+		const updatedProperty = await Property.findByIdAndUpdate(
+			propertyId,
+			{ $set: req.body },
+			{ new: true, runValidators: true }
+		).populate('agent', 'firstName lastName email username avatar id _id phone');
+		console.log({ updatedProperty })
+
+		res.status(200).json({
+			success: true,
+			message: 'Property updated successfully',
+			data: updatedProperty,
+		});
+	} catch (error) {
+		console.error('Update property error:', error);
+		console.error('Update property error:', error.message);
+		res.status(500).json({
+			success: false,
+			error: 'Failed to update property',
+		});
+	}
+};
+
+/**
+	* @route   DELETE /api/properties/:id
+	* @desc    Delete property listing
+	* @access  Private (Agent - Owner only)
+	*/
+exports.deleteProperty = async (req, res) => {
+	try {
+		const propertyId = req.params.id;
+		const userId = req.user.id;
+
+		// Find property and check ownership
+		const property = await Property.findById(propertyId);
+		if (!property) {
+			return res.status(404).json({
+				success: false,
+				error: 'Property not found',
+			});
+		}
+
+		// Check if user is the owner
+		if (property.agent.toString() !== userId) {
+			return res.status(403).json({
+				success: false,
+				error: 'Not authorized to delete this property',
+			});
+		}
+
+		// Delete property
+		await Property.findByIdAndDelete(propertyId);
+
+		res.status(200).json({
+			success: true,
+			message: 'Property deleted successfully',
+		});
+	} catch (error) {
+		console.error('Delete property error:', error);
+		res.status(500).json({
+			success: false,
+			error: 'Failed to delete property',
+		});
 	}
 };
 

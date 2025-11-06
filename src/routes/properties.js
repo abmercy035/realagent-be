@@ -6,6 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const {
+	createProperty,
 	getAllProperties,
 	getPropertyById,
 	getPropertiesByAgent,
@@ -16,8 +17,11 @@ const {
 	getPropertyStats,
 	trackPropertyView,
 	getPropertiesOccupiedByUser,
+	updateProperty,
+	deleteProperty,
 } = require('../controllers/propertyController');
 const { auth } = require('../middleware/auth');
+const { propertyCreateLimiter, propertyUpdateLimiter } = require('../middleware/propertyRateLimiter');
 
 
 /**
@@ -28,7 +32,7 @@ const { auth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roleCheck');
 const { enforcePostLimit } = require('../middleware/planLimit');
 
-router.post('/', auth, requireRole('agent'), enforcePostLimit, require('../controllers/propertyController').createProperty);
+router.post('/', auth, requireRole('agent'), propertyCreateLimiter, enforcePostLimit, createProperty);
 
 /**
 	* @route   GET /api/properties
@@ -77,7 +81,24 @@ router.get('/similar/:id', getSimilarProperties);
 	* @desc    Get single property
 	* @access  Public
 	*/
+// per-property analytics (owner/admin only)
+router.get('/:id/stats', auth, require('../controllers/propertyController').getPropertyStatsById);
+
 router.get('/:id', getPropertyById);
+
+/**
+	* @route   PUT /api/properties/:id
+	* @desc    Update property listing
+	* @access  Private (Agent - Owner only)
+	*/
+router.put('/:id', auth, requireRole('agent'), propertyUpdateLimiter, updateProperty);
+
+/**
+	* @route   DELETE /api/properties/:id
+	* @desc    Delete property listing
+	* @access  Private (Agent - Owner only)
+	*/
+router.delete('/:id', auth, requireRole('agent'), deleteProperty);
 
 /**
 	* @route   POST /api/properties/:id/share
