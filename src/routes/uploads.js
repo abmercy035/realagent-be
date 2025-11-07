@@ -115,9 +115,38 @@ router.post('/property-media', uploadLimiter, upload.fields([{ name: 'images', m
 				// Find the optimized mp4 and jpg thumbnail in eager results if present
 				const eagerList = Array.isArray(result.eager) ? result.eager : [];
 				const optimized = eagerList.find(e => String(e.format).toLowerCase() === 'mp4') || result;
-				const thumbnailItem = eagerList.find(e => String(e.format).toLowerCase() === 'jpg' || String(e.format).toLowerCase() === 'jpeg') || null;
+				const thumbnailItem = eagerList.find(e => ['jpg','jpeg','png'].includes(String(e.format).toLowerCase())) || null;
 
-				const thumbnail = thumbnailItem?.secure_url ?? optimized?.secure_url ?? result.secure_url;
+				let thumbnail = null;
+				try {
+					if (thumbnailItem && thumbnailItem.secure_url) {
+						thumbnail = thumbnailItem.secure_url;
+					} else {
+						// Fallback: construct a Cloudinary-derived image snapshot from the uploaded video public_id
+						// This uses Cloudinary's ability to serve a video frame as an image by requesting the video resource with an image format
+						if (result && result.public_id) {
+							try {
+								// prefer center-crop thumbnail
+								thumbnail = cloudinary.url(result.public_id, {
+									resource_type: 'video',
+									format: 'jpg',
+									transformation: [
+										{ width: 720, height: 406, crop: 'fill', gravity: 'auto' },
+										{ quality: 'auto', fetch_format: 'auto' }
+									],
+									secure: true,
+								});
+							} catch (err) {
+								// As a last resort, use the uploaded secure_url (may be video)
+								thumbnail = result.secure_url;
+							}
+						}
+					}
+				} catch (err) {
+					console.warn('Thumbnail generation fallback failed', err);
+					thumbnail = result.secure_url;
+				}
+
 				const duration = (optimized && (optimized.duration || result.duration)) || null;
 				videos.push({ url: optimized.secure_url, publicId: result.public_id, format: optimized.format || result.format, width: optimized.width, height: optimized.height, thumbnail, duration, type: "video" });
 				try { fs.unlinkSync(file.path); } catch (e) { /* ignore */ }

@@ -47,7 +47,7 @@ router.use('/admin/plans', plansRoutes); // Admin plan management
 router.get('/health', (req, res) => {
 	res.json({
 		status: 'success',
-		message: 'RealAgent API is running',
+		message: 'CampusAgent API is running',
 		timestamp: new Date().toISOString(),
 		environment: process.env.NODE_ENV || 'development',
 	});

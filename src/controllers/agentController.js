@@ -9,7 +9,6 @@ const { uploadToCloudinary } = require('../config/cloudinary');
 exports.searchAgents = async (req, res) => {
   try {
     const { school, minRating, maxRating, location, name } = req.query;
-    console.log(school)
     const query = { role: 'agent' };
 
     if (school) {

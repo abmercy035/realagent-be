@@ -11,9 +11,9 @@ const User = require('./src/models/User');
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
-const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'admin@realagent.com';
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'admin@campusagent.com';
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || 'AdminPass123!';
-const ADMIN_NAME = process.env.SEED_ADMIN_NAME || 'RealAgent Admin';
+const ADMIN_NAME = process.env.SEED_ADMIN_NAME || 'CampusAgent Admin';
 
 async function seedAdmin() {
 	try {

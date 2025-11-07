@@ -17,9 +17,9 @@ async function seedSuperAdmin() {
 		console.log('✅ Connected to MongoDB');
 
 		// Super admin details
-		const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'therealagent.com@gmail.com';
-		const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'Realagent2025.com';
-		const superAdminName = process.env.SUPER_ADMIN_NAME || 'RealAgent';
+		const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'campusagent.app@gmail.com';
+		const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'Campusagent2025.com';
+		const superAdminName = process.env.SUPER_ADMIN_NAME || 'CampusAgent';
 
 		// Check if super admin already exists
 		let superAdmin = await User.findOne({ email: superAdminEmail });

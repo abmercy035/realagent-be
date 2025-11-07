@@ -15,23 +15,23 @@ const courier = new CourierClient({
 	*/
 const mail_content_type = {
 	welcome: {
-		title: 'Welcome to RealAgent, {{name}}!',
+		title: 'Welcome to CampusAgent, {{name}}!',
 		body: `Dear {{name}},
 
-Welcome aboard! We are thrilled to have you join RealAgent.
+Welcome aboard! We are thrilled to have you join CampusAgent.
 
 We are excited to have you onboard and help you find the perfect property or connect with students looking for accommodation.
 
 Best regards,
-RealAgent Team
+CampusAgent Team
 ${process.env.FRONTEND_URL }`
 	},
 
 	verification: {
-		title: 'Verify your email - RealAgent',
+		title: 'Verify your email - CampusAgent',
 		body: `Hi {{name}},
 
-Thank you for registering with RealAgent!
+Thank you for registering with CampusAgent!
 
 Please verify your email by clicking the link below:
 {{verificationLink}}
@@ -41,11 +41,11 @@ This link will expire in 24 hours.
 If you didn't create an account, you can safely ignore this email.
 
 Best regards,
-RealAgent Team`
+CampusAgent Team`
 	},
 
 	otp: {
-		title: 'RealAgent verification code for {{name}}',
+		title: 'CampusAgent verification code for {{name}}',
 		body: `Hi {{name}},
 
 Please use the verification code below to sign in.
@@ -57,11 +57,11 @@ This OTP will expire after 5 minutes.
 If you didn't request this, you can ignore this email.
 
 Best regards,
-RealAgent Team`
+CampusAgent Team`
 	},
 
 	reset: {
-		title: 'Reset your password - RealAgent',
+		title: 'Reset your password - CampusAgent',
 		body: `Hi {{email}},
 
 There was a request to change your password!
@@ -74,7 +74,7 @@ This link will expire in 1 hour.
 If you did not make this request then please ignore this email.
 
 Best regards,
-RealAgent Team`
+CampusAgent Team`
 	},
 
 	verificationApproved: {
@@ -97,10 +97,10 @@ Admin Remarks: {{remarks}}
 
 Get started now: {{dashboardLink}}
 
-Thank you for being part of RealAgent!
+Thank you for being part of CampusAgent!
 
 Best regards,
-RealAgent Team`
+CampusAgent Team`
 	},
 
 	verificationRejected: {
@@ -125,7 +125,7 @@ Resubmit here: {{verificationLink}}
 If you have any questions or need assistance, please contact our support team.
 
 Best regards,
-RealAgent Team`
+CampusAgent Team`
 	},
 
 	verificationSubmitted: {
@@ -148,7 +148,7 @@ You can check the status of your verification anytime from your dashboard:
 Thank you for your patience!
 
 Best regards,
-RealAgent Team`
+CampusAgent Team`
 	},
 
 	contactForm: {
@@ -174,14 +174,14 @@ Submitted: {{submittedAt}}
 
 Reply to: {{email}}
 
-RealAgent Admin Panel`
+CampusAgent Admin Panel`
 	},
 
 	contactConfirmation: {
-		title: 'We received your message - RealAgent',
+		title: 'We received your message - CampusAgent',
 		body: `Hi {{name}},
 
-Thank you for contacting RealAgent!
+Thank you for contacting CampusAgent!
 
 ✅ We have received your message and our team will review it shortly.
 
@@ -195,7 +195,7 @@ In the meantime, you might find these resources helpful:
 Thank you for your patience!
 
 Best regards,
-RealAgent Support Team`
+CampusAgent Support Team`
 	},
 
 	// Viewing request notifications
@@ -229,7 +229,7 @@ Please log in to your dashboard to review the details and take the necessary act
 Your prompt attention to this request is appreciated.
 
 Best regards,
-RealAgent Team
+CampusAgent Team
 `
 	},
 	// Viewing request notifications
@@ -257,7 +257,7 @@ We have recorded your preferred inspection time as:
 
 ### 🔑 What Happens Next?
 
-The **RealAgent Team** will review this request and either **confirm** the appointment or **propose an alternative time**.
+The **CampusAgent Team** will review this request and either **confirm** the appointment or **propose an alternative time**.
 
 You will receive another email notification soon with an update.
 
@@ -266,7 +266,7 @@ In the meantime, you can track the status of your request on your dashboard:
 **View Status:** {{dashboardLink}}
 
 Best regards,
-RealAgent Team
+CampusAgent Team
 `
 	},
 
@@ -283,7 +283,7 @@ Time: {{requestedTime}}
 You can view the request here: {{dashboardLink}}
 
 Best regards,
-RealAgent Team`
+CampusAgent Team`
 	},
 
 	fraudReport: {
@@ -316,11 +316,11 @@ Submitted: {{submittedAt}}
 ⏰ ACTION REQUIRED:
 Please review this report within 24 hours and take appropriate action.
 
-RealAgent Admin System`
+CampusAgent Admin System`
 	},
 
 // 	fraudReportConfirmation: {
-// 		title: 'Fraud Report Received - RealAgent Security',
+	// 		title: 'Fraud Report Received - CampusAgent Security',
 // 		body: `Thank you for reporting suspicious activity.
 
 // ✅ YOUR REPORT HAS BEEN RECEIVED
@@ -334,7 +334,7 @@ RealAgent Admin System`
 // • Our security team will review your report within 24 hours
 // • We will investigate the matter thoroughly
 // • If necessary, we will take action against the reported user
-// • Your report helps keep RealAgent safe for everyone
+	// • Your report helps keep CampusAgent safe for everyone
 
 // 🔍 CHECK REPORT STATUS:
 // {{statusLink}}
@@ -349,10 +349,10 @@ RealAgent Admin System`
 // Thank you for helping us maintain a safe platform!
 
 // Best regards,
-// RealAgent Security Team`
+	// CampusAgent Security Team`
 // 	}
 	fraudReportConfirmation: {
-		title: 'Fraud Report Received - RealAgent Security',
+		title: 'Fraud Report Received - CampusAgent Security',
 		body: `Thank you for reporting suspicious activity.
 
 ✅ YOUR REPORT HAS BEEN RECEIVED
@@ -366,7 +366,7 @@ Type: {{fraudType}}
 • Our security team will review your report within 24 hours
 • We will investigate the matter thoroughly
 • If necessary, we will take action against the reported user
-• Your report helps keep RealAgent safe for everyone
+• Your report helps keep CampusAgent safe for everyone
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -378,7 +378,7 @@ If you have additional information to add to this report, please reply to this e
 Thank you for helping us maintain a safe platform!
 
 Best regards,
-RealAgent Security Team`
+CampusAgent Security Team`
 	}
 };
 

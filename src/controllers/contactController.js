@@ -33,7 +33,7 @@ exports.submitContactForm = async (req, res) => {
 		}
 
 		// Send email notification to admin
-		const adminEmail = process.env.ADMIN_EMAIL || 'therealagent.com@gmail.com';
+		const adminEmail = process.env.ADMIN_EMAIL || 'campusagent.app@gmail.com';
 
 		// Persist contact submission (best-effort). If DB save fails, continue and still send email.
 		try {

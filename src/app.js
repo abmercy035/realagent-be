@@ -36,7 +36,7 @@ if (process.env.NODE_ENV !== 'production') {
 app.get('/health', (req, res) => {
 	res.status(200).json({
 		status: 'success',
-		message: 'RealAgent API is running',
+		message: 'CampusAgent API is running',
 		timestamp: new Date().toISOString(),
 	});
 });

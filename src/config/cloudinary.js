@@ -45,7 +45,7 @@ const uploadToCloudinary = async (filePath, options = {}) => {
 			else if (filePath.startsWith('data:video')) detectedResourceType = 'video';
 		}
 		const defaultOptions = {
-			folder: 'realagent',
+			folder: 'campusagent',
 			resource_type: detectedResourceType,
 			...options,
 		};

@@ -224,7 +224,7 @@ async function seedProperties() {
 			const bcrypt = require('bcryptjs');
 			agent = await User.create({
 				name: 'Sample Agent',
-				email: 'agent@realagent.com',
+				email: 'agent@campusagent.com',
 				phone: '08012345678',
 				password: await bcrypt.hash('password123', 10),
 				role: 'agent',

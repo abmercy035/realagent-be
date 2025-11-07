@@ -55,7 +55,7 @@ exports.submitFraudReport = async (req, res) => {
 			for (const file of req.files) {
 				try {
 					const result = await cloudinary.uploadToCloudinary(file.path, {
-						folder: 'realagent/fraud-evidence',
+						folder: 'campusagent/fraud-evidence',
 						resource_type: 'auto',
 					});
 
@@ -103,7 +103,7 @@ console.log(result)
 		await fraudFlag.save();
 
 		// Send email notifications
-		const adminEmail = process.env.ADMIN_EMAIL || 'therealagent.com@gmail.com';
+		const adminEmail = process.env.ADMIN_EMAIL || 'campusagent.app@gmail.com';
 
 		try {
 			// Send notification to admin
