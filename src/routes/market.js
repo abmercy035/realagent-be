@@ -6,6 +6,9 @@ const { auth, optionalAuth } = require('../middleware/auth');
 // Public list and search
 router.get('/', marketController.listMarketItems);
 
+// Featured items (recent)
+router.get('/featured', marketController.featuredMarketItems);
+
 // List items for authenticated user (manage listings)
 router.get('/mine', auth, marketController.listUserMarketItems);
 

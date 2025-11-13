@@ -23,7 +23,7 @@ exports.listMarketItems = async (req, res) => {
 		}
 
 		const [items, total] = await Promise.all([
-			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('owner', 'name avatar school'),
+		MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('owner', 'name avatar school role username'),
 			MarketItem.countDocuments(filter),
 		]);
 
@@ -33,6 +33,22 @@ exports.listMarketItems = async (req, res) => {
 	} catch (err) {
 		console.error('List market items error:', err);
 		res.status(500).json({ error: 'Failed to fetch market items' });
+	}
+};
+
+// Featured items (recent active items)
+exports.featuredMarketItems = async (req, res) => {
+	try {
+		const limit = Math.min(parseInt(req.query.limit, 10) || 3, 20);
+		const items = await MarketItem.find({ status: { $ne: 'deleted' } })
+			.sort({ createdAt: -1 })
+			.limit(limit)
+			.populate('owner', 'name avatar school role username');
+
+		res.json({ data: items });
+	} catch (err) {
+		console.error('Featured market items error:', err);
+		res.status(500).json({ error: 'Failed to fetch featured market items' });
 	}
 };
 
@@ -51,7 +67,7 @@ exports.listUserMarketItems = async (req, res) => {
 		if (req.query.status) filter.status = req.query.status;
 
 		const [items, total] = await Promise.all([
-			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('owner', 'name avatar school'),
+			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('owner', 'name avatar school role username'),
 			MarketItem.countDocuments(filter),
 		]);
 
@@ -68,7 +84,7 @@ exports.listUserMarketItems = async (req, res) => {
 exports.getMarketItem = async (req, res) => {
 	try {
 		const { id } = req.params;
-		const item = await MarketItem.findById(id).populate('owner', 'name avatar school');
+		const item = await MarketItem.findById(id).populate('owner', 'name avatar school role username');
 		if (!item || item.status === 'deleted') return res.status(404).json({ error: 'Item not found' });
 		res.json({ data: item });
 	} catch (err) {
