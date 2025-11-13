@@ -13,6 +13,7 @@ const commentRoutes = require('./comments');
 const bookmarkRoutes = require('./bookmarks');
 const ratingRoutes = require('./ratings');
 const roommatePostRoutes = require('./roommatePosts');
+const marketRoutes = require('./market');
 const feeRoutes = require('./fees');
 const uploadsRoutes = require('./uploads');
 const viewingRequestsRoutes = require('./viewingRequests');
@@ -35,6 +36,7 @@ router.use('/comments', commentRoutes); // Comments and replies
 router.use('/bookmarks', bookmarkRoutes); // User bookmarks
 router.use('/ratings', ratingRoutes); // Agent ratings and reviews
 router.use('/roommate-posts', roommatePostRoutes); // Roommate post creation
+router.use('/market', marketRoutes); // Campus market listings
 router.use('/fees', feeRoutes); // Listing and roommate post fees
 router.use('/uploads', uploadsRoutes); // Media uploads (images/videos)
 router.use('/viewing-requests', viewingRequestsRoutes); // Viewing / inquiry requests

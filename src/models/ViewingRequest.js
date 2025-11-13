@@ -55,6 +55,13 @@ const viewingRequestSchema = new mongoose.Schema(
 			enum: ['email', 'phone', 'whatsapp', 'in-app', 'other'],
 			default: 'in-app',
 		},
+		// Source of the request for analytics (e.g., 'roommate-post', 'search', 'listing-page')
+		source: {
+			type: String,
+			enum: ['web', 'mobile', 'roommate-post', 'listing-page', 'other'],
+			default: 'other',
+			index: true,
+		},
 	},
 	{
 		timestamps: true,

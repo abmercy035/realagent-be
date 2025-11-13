@@ -218,6 +218,26 @@ const getUserById = async (req, res) => {
 };
 
 /**
+	* @route   GET /api/auth/users/email/:email
+	* @desc    Get user by email (protected)
+	* @access  Private
+	*/
+const getUserByEmail = async (req, res) => {
+	try {
+		const email = req.params.email;
+		if (!email) return res.status(400).json({ status: 'error', message: 'Email is required' });
+
+		const user = await User.findByEmail(email.toLowerCase());
+		if (!user) return res.status(404).json({ status: 'error', message: 'User not found' });
+
+		res.status(200).json({ status: 'success', data: user.toPublicProfile() });
+	} catch (err) {
+		console.error('Get user by email error:', err);
+		res.status(500).json({ status: 'error', message: 'Failed to fetch user', error: err.message });
+	}
+};
+
+/**
 	* @route   PUT /api/auth/me
 	* @desc    Update current user's profile (name, phone, school, location)
 	* @access  Private
@@ -473,6 +493,7 @@ module.exports = {
 	logout,
 	verifyEmail,
 	getUserById,
+	getUserByEmail,
 	requestPasswordReset,
 	resetPassword,
 	updateProfile,

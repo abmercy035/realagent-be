@@ -115,6 +115,21 @@ router.post('/:id/share', shareProperty);
 router.post('/:id/view', trackPropertyView);
 
 /**
+	* @route   POST /api/properties/:id/assign
+	* @desc    Assign (occupy) a property to a user (agent or admin)
+	* @access  Private (Agent owner or Admin)
+	*/
+const { requireAgentOrAdmin } = require('../middleware/roleCheck');
+router.post('/:id/assign', auth, requireAgentOrAdmin, require('../controllers/propertyController').assignProperty);
+
+/**
+	* @route   POST /api/properties/:id/unassign
+	* @desc    Unassign (vacate) a property (agent owner or admin)
+	* @access  Private (Agent owner or Admin)
+	*/
+router.post('/:id/unassign', auth, requireAgentOrAdmin, require('../controllers/propertyController').unassignProperty);
+
+/**
 	* @route   GET /api/properties/occupied-by/:userId
 	* @desc    Get properties occupied by user
 	* @access  Private

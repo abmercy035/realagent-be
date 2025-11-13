@@ -125,7 +125,7 @@ const createViewingRequest = async (req, res) => {
 const listViewingRequests = async (req, res) => {
 	try {
 		const user = req.user;
-		const { status, page = 1, limit = 20, propertyId } = req.query;
+		const { status, page = 1, limit = 20, propertyId, source } = req.query;
 
 		const query = {};
 		// If agent, show requests assigned to them
@@ -136,8 +136,10 @@ const listViewingRequests = async (req, res) => {
 			query.user = user._id;
 		}
 
-		if (status) query.status = status;
-		if (propertyId) query.propertyId = propertyId;
+	if (status) query.status = status;
+	if (propertyId) query.propertyId = propertyId;
+	// Allow filtering by source (e.g., 'roommate-post') for analytics
+	if (source) query.source = source;
 
 		const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
 		
@@ -179,6 +181,9 @@ const updateViewingRequest = async (req, res) => {
 		const { id } = req.params;
 		const { status, requestedDate, requestedTime, message, contactMethod } = req.body;
 
+
+console.log({id})
+console.log(req.body)
 		const viewing = await ViewingRequest.findById(id);
 		if (!viewing) {
 			return res.status(404).json({ status: 'error', message: 'Viewing request not found' });
@@ -237,8 +242,19 @@ const updateViewingRequest = async (req, res) => {
 				}
 
 				if (userEmail) {
+					// Try to get a friendly name for the requester
+					let requesterObj = null;
+					try {
+						if (requester && typeof requester === 'object') requesterObj = requester;
+						else requesterObj = await User.findById(requester).select('name email').lean();
+					} catch (e) {
+						// ignore
+					}
+
+					const recipientName = (requesterObj && (requesterObj.name || requesterObj.email)) || (typeof requester === 'string' ? requester : (req.user && (req.user.name || req.user._id))) ;
+
 					const payload = {
-						recipientName: user.name || user._id,
+						recipientName,
 						propertyTitle: notifProperty?.title || String(viewing.propertyId),
 						requestedDate: viewing.requestedDate ? new Date(viewing.requestedDate).toDateString() : '',
 						requestedTime: viewing.requestedTime || '',

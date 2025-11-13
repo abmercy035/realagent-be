@@ -401,6 +401,7 @@ const sendMail = async (email, data = {}, type) => {
 					to: { email },
 					content: mail_content_type[type],
 					data,
+					 // template: "33B0QQKBRN4XBAQTRZD0WD7CJQB7",
 					routing: {
 						method: 'single',
 						channels: ['email'],

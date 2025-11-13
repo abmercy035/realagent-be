@@ -17,7 +17,8 @@ router.get('/:id', async (req, res) => {
 	try {
 		const post = await RoommatePost.findById(req.params.id)
 			.populate('property')
-			.populate('occupant');
+			.populate('occupant')
+			.populate('interests.fromUser', 'name email phone');
 		if (!post) {
 			return res.status(404).json({ error: 'Roommate post not found.' });
 		}
@@ -29,5 +30,17 @@ router.get('/:id', async (req, res) => {
 
 // PUT /api/roommate-posts/:id - update roommate post (authenticated)
 router.put('/:id', auth, roommatePostController.updateRoommatePost);
+
+// DELETE /api/roommate-posts/:id - delete roommate post (authenticated)
+router.delete('/:id', auth, roommatePostController.deleteRoommatePost);
+
+// POST /api/roommate-posts/:id/interest - express interest (authenticated)
+router.post('/:id/interest', auth, roommatePostController.expressInterest);
+
+// PATCH /api/roommate-posts/:postId/interests/:interestId/handle - mark interest handled
+router.patch('/:postId/interests/:interestId/handle', auth, roommatePostController.markInterestHandled);
+
+// GET /api/roommate-posts/:postId/interests/export - export interests CSV (occupant/admin)
+router.get('/:postId/interests/export', auth, roommatePostController.exportInterestsCsv);
 
 module.exports = router;

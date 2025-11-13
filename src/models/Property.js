@@ -401,6 +401,38 @@ const propertySchema = new mongoose.Schema(
 		},
 
 		// ===========================
+		// OCCUPANCY & VISIBILITY
+		// ===========================
+		// Tracks the current occupant (if any) and whether the listing should be
+		// hidden from public searches/listings when occupied.
+		occupiedBy: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: 'User',
+			default: null,
+			index: true,
+		},
+		hideFromListings: {
+			type: Boolean,
+			default: false,
+			index: true,
+		},
+		// Who (agent/admin) assigned the occupant
+		occupiedAssignedBy: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: 'User',
+			default: null,
+		},
+		occupiedAt: {
+			type: Date,
+			default: null,
+		},
+		// Whether occupant has agreed to share phone/whatsapp publicly
+		occupantContactShared: {
+			type: Boolean,
+			default: false,
+		},
+
+		// ===========================
 		// ADDITIONAL INFO
 		// ===========================
 		rules: {
@@ -480,6 +512,8 @@ propertySchema.pre('validate', function (next) {
 propertySchema.index({ title: 'text', description: 'text', 'location.city': 'text' });
 propertySchema.index({ 'pricing.amount': 1, status: 1 });
 propertySchema.index({ agent: 1, status: 1 });
+// Index to help queries that need to hide occupied listings from search results
+propertySchema.index({ hideFromListings: 1, 'vacancy.status': 1, status: 1 });
 propertySchema.index({ createdAt: -1 });
 
 // ===========================
@@ -606,7 +640,8 @@ propertySchema.pre('save', function (next) {
 	* Search properties with filters
 	*/
 propertySchema.statics.searchProperties = async function (filters) {
-	const query = { status: 'active' };
+	// By default only show active listings that are not hidden from public listings
+	const query = { status: 'active', hideFromListings: { $ne: true } };
 
 	// Text search
 	if (filters.search) {
@@ -637,9 +672,12 @@ propertySchema.statics.searchProperties = async function (filters) {
 		}
 	}
 
-	// Vacancy filter
+	// Vacancy filter: if caller provided availability, respect it. Otherwise hide occupied listings by default.
 	if (filters.availability) {
 		query['vacancy.status'] = filters.availability;
+	} else {
+		// Exclude occupied listings from public search by default
+		query['vacancy.status'] = { $ne: 'occupied' };
 	}
 
 	// Amenities filter

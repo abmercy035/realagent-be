@@ -903,6 +903,102 @@ exports.getPropertiesOccupiedByUser = async (req, res) => {
 };
 
 /**
+	* @route   POST /api/properties/:id/assign
+	* @desc    Assign (occupy) a property to a user (agent or admin)
+	* @access  Private (Agent owner OR Admin)
+	*/
+exports.assignProperty = async (req, res) => {
+	try {
+		const propertyId = req.params.id;
+		const { occupantId, moveInDate, leaseDurationMonths, hideFromListings = true, force = false } = req.body;
+
+		const property = await Property.findById(propertyId);
+		if (!property) return res.status(404).json({ success: false, error: 'Property not found' });
+
+		// Only listing agent or admin can assign
+		if (req.user.role !== 'admin' && property.agent.toString() !== req.user._id.toString()) {
+			return res.status(403).json({ success: false, error: 'Not authorized to assign this property' });
+		}
+
+		// Prevent accidental overwrite unless admin forces
+		if (property.vacancy && property.vacancy.status === 'occupied' && !((req.user.role === 'admin') && force)) {
+			return res.status(409).json({ success: false, error: 'Property is already occupied' });
+		}
+
+		// Validate occupant
+		if (!occupantId) return res.status(400).json({ success: false, error: 'occupantId is required' });
+		const occupant = await User.findById(occupantId);
+		if (!occupant) return res.status(404).json({ success: false, error: 'Occupant user not found' });
+
+		// Update occupancy fields
+		property.vacancy = property.vacancy || {};
+		property.vacancy.status = 'occupied';
+		property.vacancy.currentTenant = property.vacancy.currentTenant || {};
+		if (moveInDate) property.vacancy.currentTenant.moveInDate = new Date(moveInDate);
+		if (leaseDurationMonths) property.vacancy.currentTenant.leaseDuration = Number(leaseDurationMonths);
+		// Backfill a userId in currentTenant to support existing queries that expect it
+		property.vacancy.currentTenant.userId = occupantId;
+
+		property.occupiedBy = occupantId;
+		property.hideFromListings = !!hideFromListings;
+		property.occupiedAssignedBy = req.user._id;
+		property.occupiedAt = new Date();
+
+		await property.save();
+
+		// Return sanitized property summary
+		const updated = await Property.findById(propertyId).select('-paidToView.unlockedBy -metrics.viewedBy');
+		res.status(200).json({ success: true, data: updated });
+	} catch (error) {
+		console.error('Assign property error:', error);
+		res.status(500).json({ success: false, error: 'Failed to assign property' });
+	}
+};
+
+/**
+	* @route   POST /api/properties/:id/unassign
+	* @desc    Unassign (vacate) a property so it becomes available again
+	* @access  Private (Agent owner OR Admin)
+	*/
+exports.unassignProperty = async (req, res) => {
+	try {
+		const propertyId = req.params.id;
+
+		const property = await Property.findById(propertyId);
+		if (!property) return res.status(404).json({ success: false, error: 'Property not found' });
+
+		// Only listing agent or admin can unassign
+		if (req.user.role !== 'admin' && property.agent.toString() !== req.user._id.toString()) {
+			return res.status(403).json({ success: false, error: 'Not authorized to unassign this property' });
+		}
+
+		if (!property.occupiedBy && (!property.vacancy || property.vacancy.status !== 'occupied')) {
+			return res.status(400).json({ success: false, error: 'Property is not currently occupied' });
+		}
+
+		// Clear occupancy
+		property.occupiedBy = null;
+		property.occupiedAssignedBy = null;
+		property.occupiedAt = null;
+		property.hideFromListings = false;
+		property.occupantContactShared = false;
+
+		// Reset vacancy details
+		property.vacancy = property.vacancy || {};
+		property.vacancy.status = 'vacant';
+		property.vacancy.currentTenant = {};
+
+		await property.save();
+
+		const updated = await Property.findById(propertyId).select('-paidToView.unlockedBy -metrics.viewedBy');
+		res.status(200).json({ success: true, data: updated });
+	} catch (error) {
+		console.error('Unassign property error:', error);
+		res.status(500).json({ success: false, error: 'Failed to unassign property' });
+	}
+};
+
+/**
 	* @route   PUT /api/properties/:id
 	* @desc    Update property listing
 	* @access  Private (Agent - Owner only)

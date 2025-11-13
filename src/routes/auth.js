@@ -29,5 +29,7 @@ router.post('/logout', auth, authController.logout);
 
 // Public: Get user by ID
 router.get('/users/:id', authController.getUserById);
+// Protected: Get user by email (used by agents to find occupant by email)
+router.get('/users/email/:email', auth, authController.getUserByEmail);
 
 module.exports = router;
