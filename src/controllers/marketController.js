@@ -143,10 +143,21 @@ exports.createMarketItem = async (req, res) => {
 					}
 				} else if (img && typeof img === 'object' && (img.url || img.publicId || img.public_id)) {
 					// already an object (probably uploaded from frontend)
-					processedImages.push({ url: img.url || img.url, publicId: img.publicId || img.public_id });
-					if (!thumbnailUrl && (img.url || img.publicId || img.public_id)) {
-						thumbnailUrl = img.url || null;
-						thumbnailPublicId = img.publicId || img.public_id || null;
+					// If the object carries a data URI in `url`, upload it instead of persisting the large string into MongoDB
+					if (typeof img.url === 'string' && img.url.startsWith && img.url.startsWith('data:')) {
+						const uploadRes = await uploadToCloudinary(img.url, { folder: 'campus-market' });
+						const imageObj = { url: uploadRes.url, publicId: uploadRes.publicId, format: uploadRes.format };
+						processedImages.push(imageObj);
+						if (!thumbnailUrl) {
+							thumbnailUrl = uploadRes.url;
+							thumbnailPublicId = uploadRes.publicId;
+						}
+					} else {
+						processedImages.push({ url: img.url || img.url, publicId: img.publicId || img.public_id });
+						if (!thumbnailUrl && (img.url || img.publicId || img.public_id)) {
+							thumbnailUrl = img.url || null;
+							thumbnailPublicId = img.publicId || img.public_id || null;
+						}
 					}
 				} else if (typeof img === 'string') {
 					// plain URL string
@@ -159,13 +170,23 @@ exports.createMarketItem = async (req, res) => {
 			}
 		}
 
+		// If the request included a thumbnail data URI (not part of images), upload it too to avoid storing large base64 in DB
+		let finalThumbnail = thumbnail;
+		let finalThumbnailPublicId = thumbnailPublicId;
+		if (typeof finalThumbnail === 'string' && finalThumbnail.startsWith && finalThumbnail.startsWith('data:')) {
+			const up = await uploadToCloudinary(finalThumbnail, { folder: 'campus-market' });
+			finalThumbnail = up.url;
+			finalThumbnailPublicId = up.publicId;
+		}
+
 		const itemPayload = {
 			title,
 			description,
 			price,
 			images: processedImages,
-			thumbnail: thumbnail || thumbnailUrl || (processedImages[0] && processedImages[0].url) || null,
-			thumbnailPublicId: thumbnailPublicId || (processedImages[0] && processedImages[0].publicId) || null,
+			// if client supplied a thumbnail as a data URI it would have been uploaded above when present in images; as a safety, prefer uploaded thumbnailUrl / publicId
+			thumbnail: finalThumbnail || thumbnailUrl || (processedImages[0] && processedImages[0].url) || null,
+			thumbnailPublicId: finalThumbnailPublicId || thumbnailPublicId || (processedImages[0] && processedImages[0].publicId) || null,
 			category,
 			tags,
 			location,
@@ -231,7 +252,13 @@ exports.updateMarketItem = async (req, res) => {
 						const uploadRes = await uploadToCloudinary(img, { folder: 'campus-market' });
 						newImages.push({ url: uploadRes.url, publicId: uploadRes.publicId, format: uploadRes.format });
 					} else if (img && typeof img === 'object' && (img.url || img.publicId || img.public_id)) {
-						newImages.push({ url: img.url || img.url, publicId: img.publicId || img.public_id });
+						// If the provided object contains a data URI in url, upload it to avoid embedding large strings
+						if (typeof img.url === 'string' && img.url.startsWith && img.url.startsWith('data:')) {
+							const uploadRes = await uploadToCloudinary(img.url, { folder: 'campus-market' });
+							newImages.push({ url: uploadRes.url, publicId: uploadRes.publicId, format: uploadRes.format });
+						} else {
+							newImages.push({ url: img.url || img.url, publicId: img.publicId || img.public_id });
+						}
 					} else if (typeof img === 'string') {
 						newImages.push({ url: img });
 					} else {
@@ -243,6 +270,13 @@ exports.updateMarketItem = async (req, res) => {
 					updateFields.thumbnail = newImages[0].url;
 					updateFields.thumbnailPublicId = newImages[0].publicId || null;
 				}
+
+					// If the client provided a thumbnail data URI in the update payload, upload it and replace with cloud URL/publicId
+					if (updateFields.thumbnail && typeof updateFields.thumbnail === 'string' && updateFields.thumbnail.startsWith && updateFields.thumbnail.startsWith('data:')) {
+						const upThumb = await uploadToCloudinary(updateFields.thumbnail, { folder: 'campus-market' });
+						updateFields.thumbnail = upThumb.url;
+						updateFields.thumbnailPublicId = upThumb.publicId;
+					}
 			}
 		}
 
