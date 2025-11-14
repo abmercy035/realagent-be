@@ -35,8 +35,9 @@ const validateFileSize = (filePath, maxSizeMB = 2) => {
 	*/
 const uploadToCloudinary = async (filePath, options = {}) => {
 	try {
-		// Validate file size with custom or default limit
-		validateFileSize(filePath, options.maxSizeMB || 2);
+		// Validate file size with custom or default limit (default 5MB for general uploads)
+		// Use explicit options.maxSizeMB when provided; otherwise allow 5MB by default to accommodate larger images
+		validateFileSize(filePath, typeof options.maxSizeMB === 'number' ? options.maxSizeMB : 5);
 
 		// Determine resource type explicitly if filePath is a data URI
 		let detectedResourceType = 'auto';
@@ -115,7 +116,8 @@ const uploadPropertyMedia = async (filePath, agentId, propertyId) => {
 		}
 
 		// Determine file type and set size limit
-		let maxSizeMB = 3;
+		// Allow up to 5MB for images (was 3MB); videos remain allowed up to 30MB
+		let maxSizeMB = 5;
 		let isVideo = false;
 		if (filePath && filePath.startsWith('data:video')) {
 			maxSizeMB = 30; // Allow up to 30MB for videos
