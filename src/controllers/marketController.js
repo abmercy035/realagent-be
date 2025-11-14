@@ -134,7 +134,7 @@ exports.createMarketItem = async (req, res) => {
 			for (const img of images) {
 				if (typeof img === 'string' && img.startsWith && img.startsWith('data:')) {
 					// upload to cloudinary (let upload errors bubble up)
-					const uploadRes = await uploadToCloudinary(img, { folder: 'campus-market' });
+					const uploadRes = await uploadToCloudinary(img, { folder: 'campus-market',options: {maxSizeMB: 5} });
 					const imageObj = { url: uploadRes.url, publicId: uploadRes.publicId, format: uploadRes.format };
 					processedImages.push(imageObj);
 					if (!thumbnailUrl) {
