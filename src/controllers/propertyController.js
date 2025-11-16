@@ -1,8 +1,8 @@
 const Property = require('../models/Property');
-			const ViewingRequest = require('../models/ViewingRequest');
+const ViewingRequest = require('../models/ViewingRequest');
 const User = require('../models/User');
 const cloudinary = require('../config/cloudinary');
-const { canCreateProperty } = require('../utils/planUtils');
+const creditsConfig = require('../config/credits');
 
 /**
 	* @route   POST /api/properties
@@ -131,6 +131,26 @@ exports.createProperty = async (req, res) => {
 			return res.status(400).json({ success: false, error: 'Please provide at least 2 media items (images/videos).' });
 		}
 
+		// Check if user has sufficient credits
+		const requiredCredits = creditsConfig.costs.propertyListing;
+		const user = await User.findById(agentId);
+
+		if (!user) {
+			await cleanupUploadedMedia(media);
+			return res.status(404).json({ success: false, error: 'User not found' });
+		}
+
+		if (!user.hasCredits(requiredCredits)) {
+			await cleanupUploadedMedia(media);
+			return res.status(403).json({
+				success: false,
+				error: `Insufficient credits. You need ${requiredCredits} credits to create a property listing.`,
+				required: requiredCredits,
+				current: user.credits,
+				code: 'INSUFFICIENT_CREDITS',
+			});
+		}
+
 		// Create property
 		const property = await Property.create({
 			title,
@@ -147,45 +167,50 @@ exports.createProperty = async (req, res) => {
 			status,
 		});
 
-		// After creation: enforce rule for free-plan grace period. If the user
-		// is in a grace window and the new total exceeds their free plan limit,
-		// delete the newly created property immediately (product rule).
+		// Deduct credits after successful property creation
 		try {
-			const check = await canCreateProperty(req.user);
-			if (check && check.inGrace && check.current > check.limit) {
-				// delete the property we just created
-				try {
-					// cleanup cloudinary media attached to this property
-					const deletions = [];
-					if (property.media && Array.isArray(property.media.images)) {
-						for (const img of property.media.images) {
-							if (img && img.publicId) deletions.push(cloudinary.deleteFromCloudinary(img.publicId).catch(() => { }));
-						}
-					}
-					if (property.media && Array.isArray(property.media.videos)) {
-						for (const vid of property.media.videos) {
-							if (vid && vid.publicId) deletions.push(cloudinary.deleteFromCloudinary(vid.publicId).catch(() => { }));
-						}
-					}
-					if (deletions.length) await Promise.allSettled(deletions);
-				} catch (cleanupErr) {
-					console.error('Failed to cleanup media after removing property due to grace-limit:', cleanupErr);
+			await user.deductCredits(
+				requiredCredits,
+				`Property listing: ${title}`,
+				{
+					relatedTo: 'property',
+					relatedId: property._id,
 				}
+			);
+		} catch (creditError) {
+			// If credit deduction fails, delete the property and cleanup media
+			console.error('Credit deduction failed:', creditError);
 
-				await Property.findByIdAndDelete(property._id);
-				return res.status(403).json({
-					success: false,
-					message: 'Your account is on a free plan grace period — newly created property removed because it would exceed your plan limit',
-					current: check.current - 1,
-					limit: check.limit,
-				});
+			try {
+				const deletions = [];
+				if (property.media && Array.isArray(property.media.images)) {
+					for (const img of property.media.images) {
+						if (img && img.publicId) deletions.push(cloudinary.deleteFromCloudinary(img.publicId).catch(() => { }));
+					}
+				}
+				if (property.media && Array.isArray(property.media.videos)) {
+					for (const vid of property.media.videos) {
+						if (vid && vid.publicId) deletions.push(cloudinary.deleteFromCloudinary(vid.publicId).catch(() => { }));
+					}
+				}
+				if (deletions.length) await Promise.allSettled(deletions);
+			} catch (cleanupErr) {
+				console.error('Failed to cleanup media after credit deduction failure:', cleanupErr);
 			}
-		} catch (e) {
-			// If the check fails for some reason, log and continue returning success
-			console.error('Post-create plan check failed:', e);
+
+			await Property.findByIdAndDelete(property._id);
+
+			return res.status(500).json({
+				success: false,
+				error: 'Failed to process credit deduction. Property was not created.',
+			});
 		}
 
-		res.status(201).json({ success: true, data: property });
+		res.status(201).json({
+			success: true,
+			data: property,
+			creditsRemaining: user.credits,
+		});
 	} catch (error) {
 		console.error('Create property error:', error.message);
 

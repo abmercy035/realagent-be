@@ -1,6 +1,12 @@
 const MarketItem = require('../models/MarketItem');
 const User = require('../models/User');
 const { deleteFromCloudinary, uploadToCloudinary } = require('../config/cloudinary');
+const creditsConfig = require('../config/credits');
+
+// Utility to escape user input for use in RegExp
+function escapeRegExp(string) {
+	return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // List market items with pagination and filters
 exports.listMarketItems = async (req, res) => {
@@ -15,7 +21,13 @@ exports.listMarketItems = async (req, res) => {
 		if (req.query.school) filter.school = req.query.school;
 		if (req.query.minPrice) filter['price.amount'] = { ...(filter['price.amount'] || {}), $gte: Number(req.query.minPrice) };
 		if (req.query.maxPrice) filter['price.amount'] = { ...(filter['price.amount'] || {}), $lte: Number(req.query.maxPrice) };
-		if (req.query.tag) filter.tags = req.query.tag;
+		// Support case-insensitive exact matching for tag (handles different casings/whitespace)
+		if (req.query.tag) {
+			const t = String(req.query.tag || '').trim();
+			if (t.length > 0) {
+				filter.tags = { $regex: new RegExp('^' + escapeRegExp(t) + '$', 'i') };
+			}
+		}
 
 		// Text search
 		if (req.query.search) {
@@ -23,7 +35,7 @@ exports.listMarketItems = async (req, res) => {
 		}
 
 		const [items, total] = await Promise.all([
-		MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('owner', 'name avatar school role username'),
+			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('owner', 'name avatar school role username'),
 			MarketItem.countDocuments(filter),
 		]);
 
@@ -113,10 +125,10 @@ exports.createMarketItem = async (req, res) => {
 		} = req.body;
 
 
-		if (!title || !description ||!contact.phone|| !price || typeof price.amount === 'undefined' || !school) {
+		if (!title || !description || !contact.phone || !price || typeof price.amount === 'undefined' || !school) {
 			return res.status(400).json({ error: 'title, description, price, contact and school are required' });
 		}
-		if (contact.phone.length < 8 ) {
+		if (contact.phone.length < 8) {
 			return res.status(400).json({ error: 'contact must be a valid phone number' });
 		}
 
@@ -134,7 +146,7 @@ exports.createMarketItem = async (req, res) => {
 			for (const img of images) {
 				if (typeof img === 'string' && img.startsWith && img.startsWith('data:')) {
 					// upload to cloudinary (let upload errors bubble up)
-					const uploadRes = await uploadToCloudinary(img, { folder: 'campus-market', maxSizeMB: 10});
+					const uploadRes = await uploadToCloudinary(img, { folder: 'campus-market', maxSizeMB: 10 });
 					const imageObj = { url: uploadRes.url, publicId: uploadRes.publicId, format: uploadRes.format };
 					processedImages.push(imageObj);
 					if (!thumbnailUrl) {
@@ -170,6 +182,14 @@ exports.createMarketItem = async (req, res) => {
 			}
 		}
 
+		// Normalize tags: ensure array of trimmed non-empty strings and normalize casing
+		let normalizedTags = [];
+		if (Array.isArray(tags)) {
+			normalizedTags = tags.map(t => (typeof t === 'string' ? t.trim() : String(t))).filter(Boolean);
+		} else if (typeof tags === 'string' && tags.trim()) {
+			normalizedTags = tags.split(',').map(t => t.trim()).filter(Boolean);
+		}
+
 		// If the request included a thumbnail data URI (not part of images), upload it too to avoid storing large base64 in DB
 		let finalThumbnail = thumbnail;
 		let finalThumbnailPublicId = thumbnailPublicId;
@@ -177,6 +197,35 @@ exports.createMarketItem = async (req, res) => {
 			const up = await uploadToCloudinary(finalThumbnail, { folder: 'campus-market' });
 			finalThumbnail = up.url;
 			finalThumbnailPublicId = up.publicId;
+		}
+
+		// Check if user has sufficient credits
+		const requiredCredits = creditsConfig.costs.itemListing;
+		const user = await User.findById(userId);
+
+		if (!user) {
+			// Cleanup uploaded images
+			for (const img of processedImages) {
+				if (img.publicId) {
+					await deleteFromCloudinary(img.publicId).catch(() => { });
+				}
+			}
+			return res.status(404).json({ error: 'User not found' });
+		}
+
+		if (!user.hasCredits(requiredCredits)) {
+			// Cleanup uploaded images
+			for (const img of processedImages) {
+				if (img.publicId) {
+					await deleteFromCloudinary(img.publicId).catch(() => { });
+				}
+			}
+			return res.status(403).json({
+				error: `Insufficient credits. You need ${requiredCredits} credits to create an item listing.`,
+				required: requiredCredits,
+				current: user.credits,
+				code: 'INSUFFICIENT_CREDITS',
+			});
 		}
 
 		const itemPayload = {
@@ -188,7 +237,7 @@ exports.createMarketItem = async (req, res) => {
 			thumbnail: finalThumbnail || thumbnailUrl || (processedImages[0] && processedImages[0].url) || null,
 			thumbnailPublicId: finalThumbnailPublicId || thumbnailPublicId || (processedImages[0] && processedImages[0].publicId) || null,
 			category,
-			tags,
+			tags: normalizedTags,
 			location,
 			contact,
 			owner: userId,
@@ -196,7 +245,38 @@ exports.createMarketItem = async (req, res) => {
 		};
 
 		const item = await MarketItem.create(itemPayload);
-		res.status(201).json({ data: item });
+
+		// Deduct credits after successful item creation
+		try {
+			await user.deductCredits(
+				requiredCredits,
+				`Item listing: ${title}`,
+				{
+					relatedTo: 'item',
+					relatedId: item._id,
+				}
+			);
+		} catch (creditError) {
+			// If credit deduction fails, delete the item and cleanup images
+			console.error('Credit deduction failed:', creditError);
+
+			for (const img of processedImages) {
+				if (img.publicId) {
+					await deleteFromCloudinary(img.publicId).catch(() => { });
+				}
+			}
+
+			await MarketItem.findByIdAndDelete(item._id);
+
+			return res.status(500).json({
+				error: 'Failed to process credit deduction. Item was not created.',
+			});
+		}
+
+		res.status(201).json({
+			data: item,
+			creditsRemaining: user.credits,
+		});
 	} catch (err) {
 		console.error('Create market item error:', err);
 		res.status(500).json({ error: 'Failed to create market item' });
@@ -217,6 +297,17 @@ exports.updateMarketItem = async (req, res) => {
 		Object.keys(updateFields).forEach((k) => {
 			if (typeof updateFields[k] === 'undefined') delete updateFields[k];
 		});
+
+		// Normalize tags in update payload if provided
+		if (updateFields.tags) {
+			let newTags = [];
+			if (Array.isArray(updateFields.tags)) {
+				newTags = updateFields.tags.map(t => (typeof t === 'string' ? t.trim() : String(t))).filter(Boolean);
+			} else if (typeof updateFields.tags === 'string' && updateFields.tags.trim()) {
+				newTags = updateFields.tags.split(',').map(t => t.trim()).filter(Boolean);
+			}
+			updateFields.tags = newTags;
+		}
 		if (!item || item.status === 'deleted') return res.status(404).json({ error: 'Item not found' });
 
 		// Only owner or admin/agent can update
@@ -271,12 +362,12 @@ exports.updateMarketItem = async (req, res) => {
 					updateFields.thumbnailPublicId = newImages[0].publicId || null;
 				}
 
-					// If the client provided a thumbnail data URI in the update payload, upload it and replace with cloud URL/publicId
-					if (updateFields.thumbnail && typeof updateFields.thumbnail === 'string' && updateFields.thumbnail.startsWith && updateFields.thumbnail.startsWith('data:')) {
-						const upThumb = await uploadToCloudinary(updateFields.thumbnail, { folder: 'campus-market' });
-						updateFields.thumbnail = upThumb.url;
-						updateFields.thumbnailPublicId = upThumb.publicId;
-					}
+				// If the client provided a thumbnail data URI in the update payload, upload it and replace with cloud URL/publicId
+				if (updateFields.thumbnail && typeof updateFields.thumbnail === 'string' && updateFields.thumbnail.startsWith && updateFields.thumbnail.startsWith('data:')) {
+					const upThumb = await uploadToCloudinary(updateFields.thumbnail, { folder: 'campus-market' });
+					updateFields.thumbnail = upThumb.url;
+					updateFields.thumbnailPublicId = upThumb.publicId;
+				}
 			}
 		}
 

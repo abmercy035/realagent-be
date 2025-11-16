@@ -18,8 +18,9 @@ const feeRoutes = require('./fees');
 const uploadsRoutes = require('./uploads');
 const viewingRequestsRoutes = require('./viewingRequests');
 const paymentRoutes = require('./payments');
-const subscriptionRoutes = require('./subscriptions');
-const plansRoutes = require('./plans');
+const creditRoutes = require('./creditRoutes');
+// const subscriptionRoutes = require('./subscriptions');
+// const plansRoutes = require('./plans');
 // const paymentRoutes = require('./payments');
 
 // Mount routes
@@ -41,8 +42,9 @@ router.use('/fees', feeRoutes); // Listing and roommate post fees
 router.use('/uploads', uploadsRoutes); // Media uploads (images/videos)
 router.use('/viewing-requests', viewingRequestsRoutes); // Viewing / inquiry requests
 router.use('/payments', paymentRoutes); // Payments (create intent, webhook)
-router.use('/subscriptions', subscriptionRoutes); // User subscription management
-router.use('/admin/plans', plansRoutes); // Admin plan management
+router.use('/credits', creditRoutes); // Credit management and purchases
+// router.use('/subscriptions', subscriptionRoutes); // User subscription management
+// router.use('/admin/plans', plansRoutes); // Admin plan management
 // router.use('/payments', paymentRoutes);
 
 // Health check endpoint

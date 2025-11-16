@@ -25,16 +25,14 @@ const { propertyCreateLimiter, propertyUpdateLimiter } = require('../middleware/
 
 
 /**
-	* @route   POST /api/properties
-	* @desc    Create new property listing (agent only)
-	* @access  Private (Agent)
-	*/
+ * @route   POST /api/properties
+ * @desc    Create new property listing (agent only)
+ * @access  Private (Agent)
+ */
 const { requireRole } = require('../middleware/roleCheck');
-const { enforcePostLimit } = require('../middleware/planLimit');
+const { requireCredits } = require('../middleware/creditCheck');
 
-router.post('/', auth, requireRole('agent'), propertyCreateLimiter, enforcePostLimit, createProperty);
-
-/**
+router.post('/', auth, requireRole('agent'), propertyCreateLimiter, requireCredits('property'), createProperty);/**
 	* @route   GET /api/properties
 	* @desc    Get all properties with filters
 	* @access  Public

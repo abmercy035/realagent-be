@@ -3,6 +3,7 @@ const Property = require('../models/Property');
 const AgentVerification = require('../models/AgentVerification');
 const Fraud = require('../models/FraudFlag');
 const Payment = require('../models/Payment');
+const CreditTransaction = require('../models/CreditTransaction');
 const { sendVerificationEmail } = require('../utils/email');
 const Contact = require('../models/Contact');
 
@@ -563,9 +564,9 @@ const demoteToUser = async (req, res) => {
 };
 
 /**
-	* Get current admin's permissions
-	* GET /api/admin/permissions
-	*/
+ * Get current admin's permissions
+ * GET /api/admin/permissions
+ */
 const getMyPermissions = async (req, res) => {
 	try {
 		const { getAdminPermissions, ADMIN_PERMISSIONS } = require('../middleware/adminRoleCheck');
@@ -587,6 +588,139 @@ const getMyPermissions = async (req, res) => {
 	}
 };
 
+/**
+	* Get credit system metrics and analytics
+	* GET /api/admin/credits/metrics
+	*/
+const getCreditMetrics = async (req, res) => {
+	try {
+		const { range = '30days' } = req.query;
+
+		// Calculate date range
+		let startDate;
+		const now = new Date();
+
+		switch (range) {
+			case '7days':
+				startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+				break;
+			case '30days':
+				startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+				break;
+			case '90days':
+				startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+				break;
+			case 'all':
+			default:
+				startDate = new Date(0); // Beginning of time
+				break;
+		}
+
+		// Get purchase transactions
+		const purchases = await CreditTransaction.find({
+			type: 'purchase',
+			'payment.status': 'success',
+			createdAt: { $gte: startDate },
+		});
+
+		// Calculate revenue
+		const totalRevenue = purchases.reduce((sum, p) => sum + (p.package?.price || 0), 0);
+		const totalPurchases = purchases.length;
+		const averagePurchaseValue = totalPurchases > 0 ? totalRevenue / totalPurchases : 0;
+
+		// Get all credit transactions
+		const allTransactions = await CreditTransaction.find({
+			createdAt: { $gte: startDate },
+		});
+
+		// Calculate total credits issued (purchases + bonuses + initial)
+		const totalCreditsIssued = allTransactions
+			.filter(t => ['purchase', 'bonus', 'initial'].includes(t.type))
+			.reduce((sum, t) => sum + t.amount, 0);
+
+		// Calculate total credits used (deductions)
+		const totalCreditsUsed = allTransactions
+			.filter(t => t.type === 'deduction')
+			.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+		// Package breakdown
+		const packageStats = {};
+		purchases.forEach(p => {
+			if (p.package && p.package.id) {
+				if (!packageStats[p.package.id]) {
+					packageStats[p.package.id] = {
+						packageId: p.package.id,
+						name: p.package.name,
+						count: 0,
+						revenue: 0,
+					};
+				}
+				packageStats[p.package.id].count++;
+				packageStats[p.package.id].revenue += p.package.price || 0;
+			}
+		});
+
+		const packageBreakdown = Object.values(packageStats);
+
+		// Get total users and users who purchased (for conversion rate)
+		const totalUsers = await User.countDocuments({
+			createdAt: { $gte: startDate },
+		});
+
+		const uniquePurchasers = new Set(purchases.map(p => p.user.toString())).size;
+		const conversionRate = totalUsers > 0 ? (uniquePurchasers / totalUsers) * 100 : 0;
+
+		// Get recent purchases
+		const recentPurchases = await CreditTransaction.find({
+			type: 'purchase',
+			'payment.status': 'success',
+		})
+			.populate('user', 'name email avatar')
+			.sort({ createdAt: -1 })
+			.limit(10)
+			.lean();
+
+		// Usage breakdown by listing type
+		const propertyDeductions = await CreditTransaction.countDocuments({
+			type: 'deduction',
+			relatedTo: 'property',
+			createdAt: { $gte: startDate },
+		});
+
+		const itemDeductions = await CreditTransaction.countDocuments({
+			type: 'deduction',
+			relatedTo: 'item',
+			createdAt: { $gte: startDate },
+		});
+
+		res.json({
+			success: true,
+			data: {
+				totalRevenue,
+				totalPurchases,
+				totalCreditsIssued,
+				totalCreditsUsed,
+				averagePurchaseValue,
+				conversionRate: Math.round(conversionRate * 10) / 10,
+				packageBreakdown,
+				recentPurchases,
+				usageBreakdown: {
+					propertyListings: propertyDeductions,
+					itemListings: itemDeductions,
+				},
+				dateRange: {
+					start: startDate,
+					end: now,
+					range,
+				},
+			},
+		});
+	} catch (err) {
+		console.error('getCreditMetrics error:', err);
+		res.status(500).json({ status: 'error', message: 'Failed to fetch credit metrics', error: err.message });
+	}
+};
+
 // add to exports
 module.exports = {
 	listUsers,
@@ -603,4 +737,5 @@ module.exports = {
 	promoteToAgent,
 	demoteToUser,
 	getMyPermissions,
+	getCreditMetrics,
 };

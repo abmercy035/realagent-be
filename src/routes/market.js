@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const marketController = require('../controllers/marketController');
 const { auth, optionalAuth } = require('../middleware/auth');
+const { requireCredits } = require('../middleware/creditCheck');
 
 // Public list and search
 router.get('/', marketController.listMarketItems);
@@ -16,7 +17,7 @@ router.get('/mine', auth, marketController.listUserMarketItems);
 router.get('/:id', marketController.getMarketItem);
 
 // Create (auth required)
-router.post('/', auth, marketController.createMarketItem);
+router.post('/', auth, requireCredits('item'), marketController.createMarketItem);
 
 // Update (auth & permission)
 router.put('/:id', auth, marketController.updateMarketItem);

@@ -127,8 +127,48 @@ exports.webhook = async (req, res) => {
       const reference = body.data.reference;
       const customerEmail = body.data.customer?.email || metadata.email;
 
-      // If metadata contains userId, update that user's subscription
-      if (metadata.userId) {
+      // Check if this is a credit purchase
+      if (metadata.type === 'credit_purchase' && metadata.userId) {
+        try {
+          const CreditTransaction = require('../models/CreditTransaction');
+          const User = require('../models/User');
+
+          // Find the transaction
+          const transaction = await CreditTransaction.findById(metadata.transactionId);
+          if (transaction && transaction.payment.status !== 'success') {
+            const user = await User.findById(metadata.userId);
+            if (user) {
+              // Credit the user's account
+              const result = await user.addCredits(
+                parseInt(metadata.credits),
+                'purchase',
+                `Purchase of ${metadata.credits} credits`,
+                {
+                  package: transaction.package,
+                  payment: {
+                    provider: 'paystack',
+                    reference: reference,
+                    status: 'success',
+                    paidAt: new Date(),
+                  },
+                }
+              );
+
+              // Update the original transaction record
+              transaction.payment.status = 'success';
+              transaction.payment.paidAt = new Date();
+              transaction.balanceAfter = result.balance;
+              await transaction.save();
+
+              console.log(`Added ${metadata.credits} credits to user ${user._id} via webhook`);
+            }
+          }
+        } catch (err) {
+          console.error('Error processing credit purchase webhook:', err);
+        }
+      }
+      // Handle subscription updates (legacy)
+      else if (metadata.userId) {
         try {
           const user = await User.findById(metadata.userId);
           if (user) {

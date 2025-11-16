@@ -14,6 +14,7 @@ const {
 	promoteToAgent,
 	demoteToUser,
 	getMyPermissions,
+	getCreditMetrics,
 } = require('../controllers/adminController');
 const { auth } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/roleCheck');
@@ -49,6 +50,9 @@ router.post('/users/:id/demote-to-user', auth, requireAdmin, requirePermission('
 // Basic analytics - All admins
 router.get('/analytics', auth, requireAdmin, analytics);
 router.get('/analytics/metrics', auth, requireAdmin, require('../controllers/adminController').analyticsMetric);
+
+// Credit system metrics - All admins
+router.get('/credits/metrics', auth, requireAdmin, getCreditMetrics);
 
 // Contacts listing - All admins
 router.get('/contacts', auth, requireAdmin, listContacts);

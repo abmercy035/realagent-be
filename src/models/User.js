@@ -132,46 +132,23 @@ const userSchema = new mongoose.Schema(
 
 
 		// ===========================
-		// SUBSCRIPTION / BILLING
+		// CREDITS SYSTEM
 		// ===========================
-		subscription: {
-			plan: {
-				type: String,
-				enum: ['free', 'pro', 'premium', 'enterprise'],
-				default: 'free',
-			},
-			status: {
-				type: String,
-				enum: ['none', 'trialing', 'active', 'past_due', 'canceled'],
-				default: 'none',
-				index: true,
-			},
-			provider: {
-				type: String, // e.g. 'stripe', 'paypal'
-			},
-			customerId: {
-				type: String, // provider's customer id
-			},
-			subscriptionId: {
-				type: String, // provider's subscription id
-			},
-			priceId: {
-				type: String, // provider's price/plan id
-			},
-			startedAt: Date,
-			currentPeriodStart: Date,
-			currentPeriodEnd: Date,
-			trialEndsAt: Date,
-			graceUntil: Date,
-			cancelAtPeriodEnd: {
-				type: Boolean,
-				default: false,
-			},
-			cancelAt: Date,
-			canceledAt: Date,
-			// last4 or token reference (do not store full card data)
-			paymentMethodLast4: String,
-			billingEmail: String,
+		credits: {
+			type: Number,
+			default: 10, // Initial credits on registration
+			min: [0, 'Credits cannot be negative'],
+			index: true,
+		},
+		totalCreditsEarned: {
+			type: Number,
+			default: 10, // Track total credits ever acquired (purchases + bonuses + initial)
+			min: [0, 'Total credits earned cannot be negative'],
+		},
+		totalCreditsSpent: {
+			type: Number,
+			default: 0, // Track total credits spent on listings
+			min: [0, 'Total credits spent cannot be negative'],
 		},
 
 		// ===========================
@@ -276,7 +253,7 @@ userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
 userSchema.index({ verified: 1 });
 userSchema.index({ createdAt: -1 });
-userSchema.index({ 'subscription.status': 1 });
+userSchema.index({ credits: 1 });
 userSchema.index({ username: 1 }, { unique: true, sparse: true });
 
 // ===========================
@@ -456,85 +433,87 @@ userSchema.methods.toPublicProfile = function () {
 		socialMedia: this.socialMedia,
 		specializations: this.specializations,
 		yearsOfExperience,
+		credits: this.credits, // Current credit balance
 		createdAt: this.createdAt,
 		lastLogin: this.lastLogin,
 	};
 };
 
 /**
-	* Update last login timestamp
-	* @returns {Promise<User>} Updated user document
-	*/
+ * Update last login timestamp
+ * @returns {Promise<User>} Updated user document
+ */
 userSchema.methods.updateLastLogin = async function () {
-	const changed = this.refreshSubscriptionStatus && this.refreshSubscriptionStatus();
 	this.lastLogin = new Date();
 	return await this.save({ validateBeforeSave: false });
 };
 
 /**
-	* Refresh subscription status in-memory.
-	* - If trialEndsAt or currentPeriodEnd has elapsed, set plan -> 'free' and status -> 'none'
-	* - Returns true if the document was modified (in-memory), caller should save
-	*/
-userSchema.methods.refreshSubscriptionStatus = function () {
-	const now = new Date();
-	const s = this.subscription || {};
-	let changed = false;
-
-	if (!s || !s.status || s.status === 'none') return false;
-
-	// Expired trial: set back to free and clear subscription status
-	if (s.status === 'trialing' && s.trialEndsAt && new Date(s.trialEndsAt) <= now) {
-		s.plan = 'free';
-		s.status = 'none';
-		// set 7-day grace window on automatic downgrade
-		s.graceUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-		changed = true;
+ * Deduct credits from user account
+ * @param {number} amount - Credits to deduct
+ * @param {string} description - Transaction description
+ * @param {Object} metadata - Additional transaction data
+ * @returns {Promise<Object>} Transaction result
+ */
+userSchema.methods.deductCredits = async function (amount, description, metadata = {}) {
+	if (this.credits < amount) {
+		throw new Error('Insufficient credits');
 	}
 
-	// Expired active subscription: set back to free and clear subscription status
-	if (s.status === 'active' && s.currentPeriodEnd && new Date(s.currentPeriodEnd) <= now) {
-		s.plan = 'free';
-		s.status = 'none';
-		// set 7-day grace window on automatic downgrade
-		s.graceUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-		changed = true;
-	}
+	const balanceBefore = this.credits;
+	this.credits -= amount;
+	this.totalCreditsSpent += amount;
+	const balanceAfter = this.credits;
 
-	if (changed) {
-		this.subscription = s;
-	}
+	await this.save();
 
-	return changed;
+	// Create transaction record
+	const CreditTransaction = require('./CreditTransaction');
+	const transaction = await CreditTransaction.create({
+		user: this._id,
+		type: 'deduction',
+		amount: -amount,
+		balanceBefore,
+		balanceAfter,
+		description,
+		...metadata,
+	});
+
+	return { success: true, balance: balanceAfter, transaction };
 };
 
 /**
-	* Bulk refresh expired subscriptions (use from a cron job or admin endpoint)
-	* Updates matching users in the database without loading each document.
-	* Returns the result of updateMany.
-	*/
-userSchema.statics.refreshExpiredSubscriptions = function () {
-	const now = new Date();
-	const graceUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-	return this.updateMany(
-		{
-			$or: [
-				{ 'subscription.status': 'trialing', 'subscription.trialEndsAt': { $lte: now } },
-				{ 'subscription.status': 'active', 'subscription.currentPeriodEnd': { $lte: now } },
-			],
-		},
-		{
-			$set: {
-				'subscription.plan': 'free',
-				// revert status to 'none' so callers validate by plan instead
-				'subscription.status': 'none',
-				'subscription.graceUntil': graceUntil,
-			},
-		}
-	);
-};
+ * Add credits to user account
+ * @param {number} amount - Credits to add
+ * @param {string} type - Transaction type (purchase, bonus, refund)
+ * @param {string} description - Transaction description
+ * @param {Object} metadata - Additional transaction data
+ * @returns {Promise<Object>} Transaction result
+ */
+userSchema.methods.addCredits = async function (amount, type = 'purchase', description, metadata = {}) {
+	const balanceBefore = this.credits;
+	this.credits += amount;
+	if (type === 'purchase' || type === 'bonus') {
+		this.totalCreditsEarned += amount;
+	}
+	const balanceAfter = this.credits;
 
-// ===========================
+	await this.save();
+
+	// Create transaction record
+	const CreditTransaction = require('./CreditTransaction');
+	const transaction = await CreditTransaction.create({
+		user: this._id,
+		type,
+		amount,
+		balanceBefore,
+		balanceAfter,
+		description,
+		...metadata,
+	});
+
+	return { success: true, balance: balanceAfter, transaction };
+};// ===========================
 // STATIC METHODS
 // ===========================
 
@@ -556,16 +535,13 @@ userSchema.statics.findActiveByRole = function (role) {
 	return this.find({ role, status: 'active' });
 };
 
-userSchema.virtual('isSubscribed').get(function () {
-	return this.subscription && (this.subscription.status === 'active' || this.subscription.status === 'trialing');
-});
-
-userSchema.methods.hasActiveSubscription = function () {
-	const s = this.subscription || {};
-	if (!s.status) return false;
-	if (s.status === 'active') return true;
-	if (s.status === 'trialing' && s.trialEndsAt && new Date() < new Date(s.trialEndsAt)) return true;
-	return false;
+/**
+	* Check if user has sufficient credits
+	* @param {number} requiredCredits - Credits needed
+	* @returns {boolean} True if user has enough credits
+	*/
+userSchema.methods.hasCredits = function (requiredCredits) {
+	return this.credits >= requiredCredits;
 };
 
 /**
