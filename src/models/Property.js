@@ -80,6 +80,12 @@ const propertySchema = new mongoose.Schema(
 				required: [true, 'Address is required'],
 				trim: true,
 			},
+			campus: {
+				type: String,
+				required: [true, 'Campus is required'],
+				trim: true,
+				index: true,
+			},
 			city: {
 				type: String,
 				required: [true, 'City is required'],
@@ -654,6 +660,9 @@ propertySchema.statics.searchProperties = async function (filters) {
 	}
 
 	// Location filter
+	if (filters.campus) {
+		query['location.campus'] = new RegExp(filters.campus, 'i');
+	}
 	if (filters.city) {
 		query['location.city'] = new RegExp(filters.city, 'i');
 	}

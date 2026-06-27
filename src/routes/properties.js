@@ -19,6 +19,7 @@ const {
 	getPropertiesOccupiedByUser,
 	updateProperty,
 	deleteProperty,
+	getPublicStats,
 } = require('../controllers/propertyController');
 const { auth } = require('../middleware/auth');
 const { propertyCreateLimiter, propertyUpdateLimiter } = require('../middleware/propertyRateLimiter');
@@ -45,6 +46,7 @@ router.get('/', getAllProperties);
 	* @access  Public
 	*/
 router.get('/featured', getFeaturedProperties);
+router.get('/public/stats', getPublicStats);
 
 /**
 	* @route   GET /api/properties/recently-viewed

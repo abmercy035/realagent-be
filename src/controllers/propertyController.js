@@ -280,6 +280,7 @@ exports.getAllProperties = async (req, res) => {
 			propertyType,
 			city,
 			state,
+			campus,
 			minPrice,
 			maxPrice,
 			availability,
@@ -297,6 +298,7 @@ exports.getAllProperties = async (req, res) => {
 			propertyType,
 			city,
 			state,
+			campus,
 			minPrice: minPrice ? Number(minPrice) : undefined,
 			maxPrice: maxPrice ? Number(maxPrice) : undefined,
 			availability,
@@ -311,7 +313,7 @@ exports.getAllProperties = async (req, res) => {
 		const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
 		const properties = await Property.find(query)
-			.populate('agent', 'name email phone avatar verificationStatus')
+			.populate('agent', 'fullName name email phone avatar verified status agentProfile')
 			.sort(sort)
 			.skip(skip)
 			.limit(Number(limit))
@@ -349,7 +351,7 @@ exports.getPropertyById = async (req, res) => {
 		const userId = req.user ? req.user._id : null;
 
 		const property = await Property.findById(id)
-			.populate('agent', 'name email phone avatar agentIdNumber verificationStatus bio')
+			.populate('agent', 'fullName name email phone avatar agentIdNumber verified status agentProfile bio')
 			.populate({
 				path: 'metrics.viewedBy.userId',
 				select: 'name',
@@ -622,7 +624,7 @@ exports.getFeaturedProperties = async (req, res) => {
 			status: 'active',
 			isFeatured: true,
 		})
-			.populate('agent', 'name email verificationStatus')
+			.populate('agent', 'fullName name email verified status agentProfile')
 			.sort({ createdAt: -1 })
 			.limit(Number(limit))
 			.select('-paidToView.unlockedBy -metrics.viewedBy');
@@ -655,7 +657,7 @@ exports.getRecentlyViewed = async (req, res) => {
 			'metrics.viewedBy.userId': userId,
 			status: 'active',
 		})
-			.populate('agent', 'name email verificationStatus')
+			.populate('agent', 'fullName name email verified status agentProfile')
 			.sort({ 'metrics.viewedBy.viewedAt': -1 })
 			.limit(Number(limit))
 			.select('-paidToView.unlockedBy -metrics.viewedBy');
@@ -702,7 +704,7 @@ exports.getSimilarProperties = async (req, res) => {
 				$lte: property.pricing.amount * 1.3, // 30% higher
 			},
 		})
-			.populate('agent', 'name email verificationStatus')
+			.populate('agent', 'fullName name email verified status agentProfile')
 			.limit(Number(limit))
 			.select('-paidToView.unlockedBy -metrics.viewedBy');
 
@@ -1114,6 +1116,56 @@ exports.deleteProperty = async (req, res) => {
 		res.status(500).json({
 			success: false,
 			error: 'Failed to delete property',
+		});
+	}
+};
+
+exports.getPublicStats = async (req, res) => {
+	try {
+		const mongoose = require('mongoose');
+		const propertyFilter = { status: 'active' };
+		const marketFilter = { status: 'active' };
+
+		const [
+			totalProperties,
+			campusList,
+			totalMarketListings,
+			verifiedAgentCount
+		] = await Promise.all([
+			Property.countDocuments(propertyFilter),
+			Property.distinct('location.campus', propertyFilter),
+			mongoose.model('MarketItem').countDocuments(marketFilter),
+			Property.aggregate([
+				{ $match: propertyFilter },
+				{
+					$lookup: {
+						from: 'users',
+						localField: 'agentId',
+						foreignField: '_id',
+						as: 'agent',
+					},
+				},
+				{ $unwind: '$agent' },
+				{ $match: { 'agent.agentProfile.verification.status': 'verified' } },
+				{ $group: { _id: '$agentId' } },
+				{ $count: 'count' },
+			]).then((r) => r[0]?.count ?? 0)
+		]);
+
+		res.status(200).json({
+			success: true,
+			data: {
+				totalProperties,
+				campusCount: campusList.length,
+				totalMarketListings,
+				verifiedAgentCount,
+			}
+		});
+	} catch (error) {
+		console.error('Get public stats error:', error);
+		res.status(500).json({
+			success: false,
+			error: 'Failed to fetch public stats',
 		});
 	}
 };

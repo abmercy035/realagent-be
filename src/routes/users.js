@@ -30,7 +30,7 @@ const profileUpdateLimiter = rateLimit({
 // ---------------------------------------------------------------------------
 router.get('/me', profileReadLimiter, authNew, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('fullName name email phone avatarUrl avatar username');
+    const user = await User.findById(req.user._id);
     if (!user) {
       return res.status(404).json({ success: false, status: 'error', message: 'Account not found.' });
     }
@@ -39,13 +39,7 @@ router.get('/me', profileReadLimiter, authNew, async (req, res) => {
       success: true,
       status: 'success',
       message: 'Profile retrieved.',
-      data: {
-        fullName: user.fullName || user.name,
-        email: user.email,
-        phone: user.phone || '',
-        avatarUrl: user.avatarUrl || user.avatar || '',
-        username: user.username || '',
-      },
+      data: user.toPublicProfile(),
     });
   } catch (error) {
     console.error('Get profile me error:', error);
