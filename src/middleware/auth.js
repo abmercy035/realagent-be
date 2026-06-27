@@ -22,6 +22,7 @@ const SESSION_INDICATOR_COOKIE = 'campusagent_session';
 	* Checks cookies ('token') first, then Authorization header.
 	*/
 const auth = async (req, res, next) => {
+	console.log(action + "8")
 	try {
 		let token;
 		let isNewToken = false;

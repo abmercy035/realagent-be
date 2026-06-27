@@ -10,13 +10,21 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
-// // Rate limiting
-// const limiter = rateLimit({
-// 	windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-// 	max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-// 	message: 'Too many requests from this IP, please try again later.',
-// });
-// app.use('/api', limiter);
+// Rate limiting
+const limiter = rateLimit({
+	windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // 15 minutes
+	max: process.env.NODE_ENV === 'development'
+		? 10000 // High limit in development to avoid HMR / page refresh blocks
+		: (parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100),
+	standardHeaders: true,
+	legacyHeaders: false,
+	message: {
+		status: 'error',
+		message: 'Too many requests from this IP, please try again later.',
+		code: 'RATE_LIMIT_EXCEEDED',
+	},
+});
+app.use('/api', limiter);
 
 // CORS configuration
 app.use(cors({
