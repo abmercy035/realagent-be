@@ -2,11 +2,90 @@
 	* User Model
 	* Handles user authentication and profile data for all roles
 	* Roles: user (regular tenant/buyer), agent (property lister), admin (platform manager)
+	*
+	* MIGRATION NOTE (2026-06-26): Frontend (Next.js) API routes are being migrated
+	* to this Express backend. New fields added below mirror the frontend User model
+	* while keeping ALL existing fields intact for backward compatibility.
+	* Field aliases (fullName→name, avatarUrl→avatar, globalRole→role) are handled
+	* in a pre-save hook so both old and new code work seamlessly.
 	*/
 
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+
+// ---------------------------------------------------------------------------
+// Embedded sub-schemas (mirrors frontend User model's agentProfile structure)
+// ---------------------------------------------------------------------------
+
+const ProfessionalAgentProofSchema = new mongoose.Schema(
+	{
+		govIdType: { type: String, enum: ['nin', 'drivers_license', 'passport'] },
+		govIdNumber: { type: String },
+		govIdDocumentUrl: { type: String },
+		cacNumber: { type: String },
+		cacDocumentUrl: { type: String },
+		proofOfAddressUrl: { type: String },
+	},
+	{ _id: false },
+);
+
+const StudentAgentProofSchema = new mongoose.Schema(
+	{
+		studentEmail: { type: String, lowercase: true, trim: true },
+		studentEmailVerifiedAt: { type: Date },
+		studentIdCardUrl: { type: String },
+	},
+	{ _id: false },
+);
+
+const AgentVerificationSubSchema = new mongoose.Schema(
+	{
+		status: {
+			type: String,
+			enum: ['unverified', 'pending', 'verified', 'rejected'],
+			default: 'unverified',
+		},
+		submittedAt: { type: Date },
+		reviewedAt: { type: Date },
+		reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+		rejectionReason: { type: String },
+		professionalProof: { type: ProfessionalAgentProofSchema },
+		studentProof: { type: StudentAgentProofSchema },
+	},
+	{ _id: false },
+);
+
+const PropertySubscriptionStateSubSchema = new mongoose.Schema(
+	{
+		plan: { type: String, enum: ['free', 'basic', 'pro', 'premium'], default: 'free' },
+		status: {
+			type: String,
+			enum: ['trialing', 'in_grace_period', 'active', 'payment_issue', 'expired', 'canceled'],
+			default: 'trialing',
+		},
+		trialStartedAt: { type: Date },
+		trialEndsAt: { type: Date },
+		gracePeriodEndsAt: { type: Date },
+		currentPeriodStart: { type: Date },
+		currentPeriodEnd: { type: Date },
+		listingsUsedThisPeriod: { type: Number, default: 0, min: 0 },
+		paystackSubscriptionCode: { type: String },
+		paystackCustomerCode: { type: String },
+		lastPaymentReference: { type: String },
+	},
+	{ _id: false },
+);
+
+const AgentProfileSubSchema = new mongoose.Schema(
+	{
+		subtype: { type: String, enum: ['professional', 'student'] },
+		verification: { type: AgentVerificationSubSchema, default: () => ({}) },
+		subscription: { type: PropertySubscriptionStateSubSchema },
+		createdAt: { type: Date, default: () => new Date() },
+	},
+	{ _id: false },
+);
 
 const userSchema = new mongoose.Schema(
 	{
@@ -20,6 +99,13 @@ const userSchema = new mongoose.Schema(
 			minlength: [2, 'Name must be at least 2 characters'],
 			maxlength: [100, 'Name cannot exceed 100 characters'],
 		},
+		// Alias for `name` — used by migrated frontend code.
+		// Pre-save hook copies fullName → name if name is empty.
+		fullName: {
+			type: String,
+			trim: true,
+			maxlength: [100, 'Full name cannot exceed 100 characters'],
+		},
 		username: {
 			type: String,
 			trim: true,
@@ -28,6 +114,7 @@ const userSchema = new mongoose.Schema(
 			sparse: true,
 			maxlength: [50, 'Username cannot exceed 50 characters'],
 			match: [/^[a-z0-9\-_.]+$/i, 'Username can only contain letters, numbers, hyphens, underscores and dots'],
+			// index defined below via schema.index({ username: 1 }, { unique: true, sparse: true })
 		},
 		email: {
 			type: String,
@@ -39,17 +126,46 @@ const userSchema = new mongoose.Schema(
 				/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
 				'Please provide a valid email address',
 			],
+			// index defined below via schema.index({ email: 1 })
 		},
 		password: {
 			type: String,
-			required: [true, 'Password is required'],
+			// No longer `required: true` — Google OAuth users have no password.
+			// Application-layer validation (Zod in routes) enforces this for email/password registrations.
 			minlength: [6, 'Password must be at least 6 characters'],
+			select: false,
+		},
+		passwordHash: {
+			type: String,
 			select: false,
 		},
 		avatar: {
 			type: String,
 			default: null,
 		},
+		// Alias for `avatar` — used by migrated frontend code.
+		// Pre-save hook copies avatarUrl → avatar if avatar is empty.
+		avatarUrl: {
+			type: String,
+		},
+
+		// ===========================
+		// GOOGLE OAUTH (migrated from frontend)
+		// ===========================
+		googleId: {
+			type: String,
+			sparse: true,
+			unique: true,
+			// index defined below via schema.index({ googleId: 1 }, { unique: true, sparse: true })
+		},
+
+		// ===========================
+		// EMAIL VERIFICATION (migrated from frontend — Date instead of Boolean)
+		// ===========================
+		emailVerifiedAt: {
+			type: Date,
+		},
+
 		bio: {
 			type: String,
 			maxlength: [500, 'Bio must be at most 3000 characters'],
@@ -130,6 +246,46 @@ const userSchema = new mongoose.Schema(
 			// Only applicable when role is 'admin'
 		},
 
+		// Alias for `role` — used by migrated frontend code.
+		// Pre-save hook copies globalRole → role if role is 'user' (default).
+		// Frontend uses 'user'|'admin'; backend uses 'user'|'agent'|'admin'.
+		globalRole: {
+			type: String,
+			enum: ['user', 'admin'],
+			default: 'user',
+		},
+
+		// ===========================
+		// AGENT PROFILE (migrated from frontend — embedded, not separate collection)
+		// ===========================
+		agentProfile: {
+			type: AgentProfileSubSchema,
+			default: undefined,
+		},
+
+		// ===========================
+		// TOKEN VERSION (migrated from frontend — "log out everywhere" support)
+		// ===========================
+		refreshTokenVersion: {
+			type: Number,
+			default: 0,
+			min: 0,
+		},
+
+		// ===========================
+		// CAMPUS MARKET (migrated from frontend)
+		// ===========================
+		marketCreditBalance: {
+			type: Number,
+			default: 200, // MARKET_FREE_SIGNUP_CREDITS
+			min: [0, 'Market credit balance cannot be negative'],
+		},
+		marketSellerTier: {
+			type: String,
+			enum: ['free', 'paid_basic'],
+			default: 'free',
+		},
+
 
 		// ===========================
 		// CREDITS SYSTEM
@@ -138,7 +294,7 @@ const userSchema = new mongoose.Schema(
 			type: Number,
 			default: 10, // Initial credits on registration
 			min: [0, 'Credits cannot be negative'],
-			index: true,
+			// index defined below via schema.index({ credits: 1 })
 		},
 		totalCreditsEarned: {
 			type: Number,
@@ -159,7 +315,6 @@ const userSchema = new mongoose.Schema(
 		emailVerified: {
 			type: Boolean,
 			default: false,
-			index: true,
 		},
 		verificationToken: {
 			type: String,
@@ -169,12 +324,20 @@ const userSchema = new mongoose.Schema(
 			type: Date,
 			select: false,
 		},
+		otpCode: {
+			type: String,
+			select: false,
+		},
+		otpExpires: {
+			type: Date,
+			select: false,
+		},
 
 		// Agent verification (for agents only - after document submission)
 		verified: {
 			type: Boolean,
 			default: false,
-			index: true,
+			// index defined below via schema.index({ verified: 1 })
 		},
 		status: {
 			type: String,
@@ -183,7 +346,7 @@ const userSchema = new mongoose.Schema(
 				message: 'Status must be either active, suspended, or banned',
 			},
 			default: 'active',
-			index: true,
+			// index defined below via schema.index({ status: 1 })
 		},
 		suspensionReason: {
 			type: String,
@@ -250,11 +413,17 @@ const userSchema = new mongoose.Schema(
 // ===========================
 userSchema.index({ email: 1 });
 userSchema.index({ role: 1 });
+userSchema.index({ globalRole: 1 });
 userSchema.index({ status: 1 });
 userSchema.index({ verified: 1 });
 userSchema.index({ createdAt: -1 });
 userSchema.index({ credits: 1 });
+userSchema.index({ marketCreditBalance: 1 });
+userSchema.index({ googleId: 1 }, { unique: true, sparse: true });
 userSchema.index({ username: 1 }, { unique: true, sparse: true });
+userSchema.index({ 'agentProfile.subscription.trialEndsAt': 1 }, { sparse: true });
+userSchema.index({ 'agentProfile.subscription.gracePeriodEndsAt': 1 }, { sparse: true });
+userSchema.index({ 'agentProfile.verification.status': 1 }, { sparse: true });
 
 // ===========================
 // VIRTUAL PROPERTIES
@@ -281,8 +450,31 @@ userSchema.virtual('isVerified').get(function () {
 /**
 	* Hash password before saving to database
 	* Only runs if password is modified
+	*
+	* Also handles field-name aliases for migrated frontend code:
+	*   fullName → name (if name is empty)
+	*   avatarUrl → avatar (if avatar is empty)
+	*   globalRole → role (if role is 'user' and globalRole is 'admin')
 	*/
 userSchema.pre('save', async function (next) {
+	// --- Field-name aliases for migrated frontend code ---
+	if (!this.name && this.fullName) {
+		this.name = this.fullName;
+	}
+	if (!this.avatar && this.avatarUrl) {
+		this.avatar = this.avatarUrl;
+	}
+	if (this.globalRole === 'admin' && this.role === 'user') {
+		this.role = 'admin';
+	}
+	// Sync fullName/avatarUrl back from name/avatar so both fields stay consistent
+	if (this.name && !this.fullName) {
+		this.fullName = this.name;
+	}
+	if (this.avatar && !this.avatarUrl) {
+		this.avatarUrl = this.avatar;
+	}
+
 	// Ensure username exists for public agent profiles
 	try {
 		if (!this.username && this.name) {
@@ -314,16 +506,24 @@ userSchema.pre('save', async function (next) {
 	}
 
 	// Hash password if it's been modified
-	if (!this.isModified('password')) {
-		return next();
-	}
-
-	try {
-		const salt = await bcrypt.genSalt(10);
-		this.password = await bcrypt.hash(this.password, salt);
+	if (this.isModified('password')) {
+		try {
+			const salt = await bcrypt.genSalt(10);
+			this.password = await bcrypt.hash(this.password, salt);
+			this.passwordHash = this.password; // Sync the hashed password to passwordHash
+			next();
+		} catch (error) {
+			next(error);
+		}
+	} else if (this.isModified('passwordHash')) {
+		// If passwordHash was set directly, keep password in sync
+		this.password = this.passwordHash;
 		next();
-	} catch (error) {
-		next(error);
+	} else {
+		// Sync fields if one is set but not the other
+		if (this.password && !this.passwordHash) this.passwordHash = this.password;
+		if (this.passwordHash && !this.password) this.password = this.passwordHash;
+		next();
 	}
 });
 
@@ -338,7 +538,9 @@ userSchema.pre('save', async function (next) {
 	*/
 userSchema.methods.comparePassword = async function (candidatePassword) {
 	try {
-		return await bcrypt.compare(candidatePassword, this.password);
+		const hash = this.password || this.passwordHash;
+		if (!hash) return false;
+		return await bcrypt.compare(candidatePassword, hash);
 	} catch (error) {
 		throw new Error('Password comparison failed');
 	}
@@ -362,6 +564,26 @@ userSchema.methods.generateVerificationToken = function () {
 	this.verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000;
 
 	return token; // Return unhashed token to send via email
+};
+
+/**
+ * Generate 6-digit OTP code for email verification
+ * @returns {string} Unhashed 6-digit OTP code to send via email
+ */
+userSchema.methods.generateOTP = function () {
+	// Generate 6-digit random numeric string
+	const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+	// Hash OTP before storing
+	this.otpCode = crypto
+		.createHash('sha256')
+		.update(otp)
+		.digest('hex');
+
+	// OTP expires in 10 minutes
+	this.otpExpires = Date.now() + 10 * 60 * 1000;
+
+	return otp;
 };
 
 /**
@@ -411,29 +633,37 @@ userSchema.methods.toPublicProfile = function () {
 	return {
 		id: this._id,
 		name: this.name,
+		fullName: this.fullName || this.name,
 		avatar: this.avatar,
+		avatarUrl: this.avatarUrl || this.avatar,
 		profile: this.avatar,
 		profile_pics: this.avatar,
 		profile_picture: this.avatar,
 		username: this.username,
 		agentIdNumber: this.agentIdNumber,
 		email: this.email,
-		emailVerified: this.emailVerified, // Email verification status for all users
+		emailVerified: this.emailVerified,
+		emailVerifiedAt: this.emailVerifiedAt,
 		bio: this.bio,
 		phone: this.phone,
 		school: this.school,
 		location: this.location,
 		role: this.role,
-		adminRole: this.adminRole, // Admin level: basic, mid, or super
-		verified: this.verified, // Agent document verification status (agents only)
+		globalRole: this.globalRole || (this.role === 'admin' ? 'admin' : 'user'),
+		adminRole: this.adminRole,
+		verified: this.verified,
 		status: this.status,
 		rating: this.rating,
-		reviewCount: this.reviewCount,
+		reviewCount: this.totalReviews,
 		languages: this.languages,
 		socialMedia: this.socialMedia,
 		specializations: this.specializations,
 		yearsOfExperience,
-		credits: this.credits, // Current credit balance
+		credits: this.credits,
+		marketCreditBalance: this.marketCreditBalance,
+		marketSellerTier: this.marketSellerTier,
+		agentProfile: this.agentProfile,
+		googleId: this.googleId,
 		createdAt: this.createdAt,
 		lastLogin: this.lastLogin,
 	};
@@ -523,7 +753,7 @@ userSchema.methods.addCredits = async function (amount, type = 'purchase', descr
 	* @returns {Promise<User>} User document with password
 	*/
 userSchema.statics.findByEmail = function (email) {
-	return this.findOne({ email }).select('+password');
+	return this.findOne({ email }).select('+password +passwordHash');
 };
 
 /**

@@ -52,7 +52,7 @@ exports.getAgentByUsername = async (req, res) => {
     const username = req.params.username;
     if (!username) return res.status(400).json({ status: 'error', message: 'Username is required' });
 
-    const agent = await User.findOne({ username, role: 'agent' }).select('-password');
+    const agent = await User.findOne({ username, role: { $in: ['agent', 'user'] } }).select('-password');
     if (!agent) return res.status(404).json({ status: 'error', message: 'Agent not found' });
 
     res.json({ status: 'success', data: agent });

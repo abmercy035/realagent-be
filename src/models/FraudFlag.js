@@ -24,7 +24,7 @@ const fraudFlagSchema = new mongoose.Schema(
 		reportedBy: {
 			type: mongoose.Schema.Types.ObjectId,
 			ref: 'User',
-			index: true,
+			// index defined below via fraudFlagSchema.index({ reportedBy: 1 })
 		},
 		reporterType: {
 			type: String,
@@ -54,7 +54,7 @@ const fraudFlagSchema = new mongoose.Schema(
 				message: 'Invalid fraud type',
 			},
 			required: [true, 'Fraud type is required'],
-			index: true,
+			// index defined below via fraudFlagSchema.index({ fraudType: 1 })
 		},
 		reason: {
 			type: String,

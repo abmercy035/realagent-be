@@ -6,6 +6,8 @@ const profileUpdateLimiter = require('../middleware/profileRateLimiter');
 
 // Search agents with filters
 router.get('/search', agentController.searchAgents);
+// List all agents (with optional filters)
+router.get('/', agentController.searchAgents);
 // Upload profile image (protected route)
 router.put('/profile/avatar', auth, profileUpdateLimiter, agentController.uploadProfileImage);
 // Get agent by username

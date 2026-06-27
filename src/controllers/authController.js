@@ -109,6 +109,7 @@ const login = async (req, res) => {
 			});
 		}
 
+console.log(validationErr)
 
 		// Find user with password field
 		const user = await User.findByEmail(email.toLowerCase());

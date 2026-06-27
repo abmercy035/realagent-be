@@ -1,56 +1,47 @@
 const mongoose = require('mongoose');
 
+const MarketMediaSchema = new mongoose.Schema(
+	{
+		cloudinaryPublicId: { type: String, required: true },
+		secureUrl: { type: String, required: true },
+		type: { type: String, enum: ['image', 'video'], required: true },
+	},
+	{ _id: false }
+);
+
+const CreditCostBreakdownSchema = new mongoose.Schema(
+	{
+		imageCost: { type: Number, required: true },
+		videoCost: { type: Number, required: true },
+		priceCost: { type: Number, required: true },
+		rawTotal: { type: Number, required: true },
+		finalCost: { type: Number, required: true },
+		capped: { type: Boolean, required: true },
+	},
+	{ _id: false }
+);
+
 const MarketItemSchema = new mongoose.Schema(
 	{
-		title: { type: String, required: [true, 'Title is required'], trim: true, maxlength: 200 },
-		description: { type: String, required: [true, 'Description is required'], trim: true, maxlength: 5000 },
-		price: {
-			amount: { type: Number, required: [true, 'Price amount is required'], min: 0 },
-			currency: { type: String, default: 'NGN' },
-		},
-		images: [
-			{
-				url: String,
-				publicId: String,
-			},
-		],
-		thumbnail: { type: String },
-		// store public id for thumbnail when uploaded to Cloudinary
-		thumbnailPublicId: { type: String },
-		category: { type: String, trim: true, index: true },
-		tags: [{ type: String, index: true }],
-		location: {
-			address: String,
-			city: String,
-			state: String,
-		},
-		contact: {
-			phone: String,
-			email: String,
-		},
-		owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-		status: { type: String, enum: ['active', 'closed', 'deleted'], default: 'active', index: true },
-		school: { type: String, required: [true, 'School is required'], trim: true, index: true },
+		sellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+		title: { type: String, required: true, trim: true, maxlength: 150 },
+		description: { type: String, required: true, maxlength: 3000 },
+		price: { type: Number, required: true, min: 0 },
+		category: { type: String, required: true, trim: true, index: true },
+		campus: { type: String, required: true, trim: true, index: true },
+		media: { type: [MarketMediaSchema], default: [] },
+		status: { type: String, enum: ['active', 'sold', 'removed'], default: 'active', required: true, index: true },
+		creditCostCharged: { type: CreditCostBreakdownSchema, required: true },
+		sellerTierAtCreation: { type: String, enum: ['free', 'paid_basic'], required: true },
 	},
 	{ timestamps: true }
 );
 
-// Ensure max 2 images
-MarketItemSchema.path('images').validate(function (val) {
-	if (!val) return true;
-	return val.length <= 2;
-}, 'A maximum of 2 images is allowed');
+// Primary browse index matching frontend
+MarketItemSchema.index({ campus: 1, status: 1, createdAt: -1 });
+MarketItemSchema.index({ category: 1, status: 1, createdAt: -1 });
+MarketItemSchema.index({ sellerId: 1, status: 1, createdAt: -1 });
+MarketItemSchema.index({ title: 'text', description: 'text' });
 
-// Text index for full-text search on title, description and tags.
-// Including `tags` as a text field allows full-text searches to match tag values.
-// We avoid mixing text and non-text keys in the same index (e.g. title:text + tags:1),
-// but adding tags as a text field in the text index is valid and desired if you want
-// search queries to hit tag values.
-MarketItemSchema.index({ title: 'text', description: 'text', tags: 'text' });
-
-// Separate single-field indexes for filters / sorting
-MarketItemSchema.index({ tags: 1 });
-MarketItemSchema.index({ category: 1 });
-MarketItemSchema.index({ school: 1 });
-
-module.exports = mongoose.model('MarketItem', MarketItemSchema);
+// Ensure we map directly to the 'marketlistings' collection used by the frontend
+module.exports = mongoose.model('MarketItem', MarketItemSchema, 'marketlistings');

@@ -17,7 +17,7 @@ router.get('/mine', auth, marketController.listUserMarketItems);
 router.get('/:id', marketController.getMarketItem);
 
 // Create (auth required)
-router.post('/', auth, requireCredits('item'), marketController.createMarketItem);
+router.post('/', auth, marketController.createMarketItem);
 
 // Update (auth & permission)
 router.put('/:id', auth, marketController.updateMarketItem);

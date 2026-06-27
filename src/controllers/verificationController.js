@@ -21,30 +21,102 @@ const {
 const submitVerification = async (req, res) => {
 	try {
 		const {
+			subtype,
+			professionalProof,
+			studentProof,
 			idName,
-			idDocumentUrl,
-			proofOfAddressUrl,
-			businessRegistrationUrl,
-			businessName,
-			businessRegNo,
-			businessAddress,
+			idDocumentUrl: flatIdDocUrl,
+			proofOfAddressUrl: flatProofOfAddressUrl,
+			businessRegistrationUrl: flatCacUrl,
+			businessName: flatBusinessName,
+			businessRegNo: flatBusinessRegNo,
+			businessAddress: flatBusinessAddress,
 		} = req.body;
 
+		// Adapt to support both nested (frontend Next.js) and flat (legacy backend) formats
+		let finalSubtype = subtype || 'professional';
+		let finalIdDocUrl = flatIdDocUrl;
+		let finalProofOfAddressUrl = flatProofOfAddressUrl;
+		let finalCacUrl = flatCacUrl;
+		let finalBusinessName = flatBusinessName;
+		let finalBusinessRegNo = flatBusinessRegNo;
+		let finalBusinessAddress = flatBusinessAddress;
+		let finalStudentEmail = null;
+
+		if (professionalProof) {
+			finalSubtype = 'professional';
+			finalIdDocUrl = professionalProof.govIdDocumentUrl || professionalProof.cacDocumentUrl || finalIdDocUrl;
+			finalProofOfAddressUrl = professionalProof.proofOfAddressUrl || finalProofOfAddressUrl;
+			finalCacUrl = professionalProof.cacDocumentUrl || finalCacUrl;
+			finalBusinessName = professionalProof.businessName || finalBusinessName;
+			finalBusinessRegNo = professionalProof.cacNumber || professionalProof.businessRegNo || finalBusinessRegNo;
+			finalBusinessAddress = professionalProof.businessAddress || finalBusinessAddress;
+		} else if (studentProof) {
+			finalSubtype = 'student';
+			finalIdDocUrl = studentProof.studentIdCardUrl || finalIdDocUrl;
+			finalStudentEmail = studentProof.studentEmail;
+		}
+
 		// Validate required fields
-		if (!idDocumentUrl && !proofOfAddressUrl) {
+		if (!finalIdDocUrl) {
 			return res.status(400).json({
 				status: 'error',
-				message: 'ID document and proof of address are required',
+				message: 'Verification document is required',
 			});
 		}
 
-		// Check if user is an agent
-		if (req.user.role !== 'agent') {
+		// Allow both users and agents to submit verification
+		if (req.user.role !== 'agent' && req.user.role !== 'user') {
 			return res.status(403).json({
 				status: 'error',
-				message: 'Only agents can submit verification',
+				message: 'Only regular users and agents can submit verification',
 			});
 		}
+
+		// Update user profile to reflect agent status and embed agentProfile subdocument
+		const user = await User.findById(req.user._id);
+		if (!user) {
+			return res.status(404).json({
+				status: 'error',
+				message: 'User account not found',
+			});
+		}
+
+		const now = new Date();
+		const trialEndsAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+		user.role = 'agent';
+		user.agentProfile = {
+			subtype: finalSubtype,
+			verification: {
+				status: 'pending',
+				submittedAt: now,
+				professionalProof: finalSubtype === 'professional' ? {
+					govIdType: professionalProof?.govIdType || 'nin',
+					govIdNumber: professionalProof?.govIdNumber || '',
+					govIdDocumentUrl: professionalProof?.govIdDocumentUrl || finalIdDocUrl || '',
+					cacNumber: professionalProof?.cacNumber || finalBusinessRegNo || '',
+					cacDocumentUrl: professionalProof?.cacDocumentUrl || finalCacUrl || '',
+					proofOfAddressUrl: finalProofOfAddressUrl || '',
+				} : undefined,
+				studentProof: finalSubtype === 'student' ? {
+					studentEmail: finalStudentEmail || '',
+					studentIdCardUrl: finalIdDocUrl || '',
+				} : undefined,
+			},
+			subscription: {
+				plan: 'free',
+				status: 'trialing',
+				trialStartedAt: now,
+				trialEndsAt,
+				currentPeriodStart: now,
+				currentPeriodEnd: trialEndsAt,
+				listingsUsedThisPeriod: 0,
+			},
+			createdAt: now,
+		};
+
+		await user.save();
 
 		// Check for existing verification
 		const existingVerification = await AgentVerification.findOne({
@@ -65,22 +137,22 @@ const submitVerification = async (req, res) => {
 			// Update with new documents
 			existingVerification.idDocument = {
 				name: idName || "student id",
-				url: idDocumentUrl,
+				url: finalIdDocUrl,
 				uploadedAt: new Date(),
 			};
-			existingVerification.proofOfAddress = {
-				url: proofOfAddressUrl,
+			existingVerification.proofOfAddress = finalProofOfAddressUrl ? {
+				url: finalProofOfAddressUrl,
 				uploadedAt: new Date(),
-			};
-			if (businessRegistrationUrl) {
+			} : undefined;
+			if (finalCacUrl) {
 				existingVerification.businessRegistration = {
-					url: businessRegistrationUrl,
+					url: finalCacUrl,
 					uploadedAt: new Date(),
 				};
 			}
-			existingVerification.businessName = businessName;
-			existingVerification.businessRegNo = businessRegNo;
-			existingVerification.businessAddress = businessAddress;
+			existingVerification.businessName = finalBusinessName;
+			existingVerification.businessRegNo = finalBusinessRegNo;
+			existingVerification.businessAddress = finalBusinessAddress;
 			existingVerification.status = 'pending';
 			existingVerification.submissionCount += 1;
 			existingVerification.rejectionReason = undefined;
@@ -106,22 +178,24 @@ const submitVerification = async (req, res) => {
 			verification = new AgentVerification({
 				agentId: req.user._id,
 				idDocument: {
-					url: idDocumentUrl,
+					url: finalIdDocUrl,
 					uploadedAt: new Date(),
 				},
-				proofOfAddress: {
-					url: proofOfAddressUrl,
-					uploadedAt: new Date(),
-				},
-				businessRegistration: businessRegistrationUrl
+				proofOfAddress: finalProofOfAddressUrl
 					? {
-						url: businessRegistrationUrl,
+						url: finalProofOfAddressUrl,
 						uploadedAt: new Date(),
 					}
 					: undefined,
-				businessName,
-				businessRegNo,
-				businessAddress,
+				businessRegistration: finalCacUrl
+					? {
+						url: finalCacUrl,
+						uploadedAt: new Date(),
+					}
+					: undefined,
+				businessName: finalBusinessName,
+				businessRegNo: finalBusinessRegNo,
+				businessAddress: finalBusinessAddress,
 			});
 
 			await verification.save();

@@ -1,11 +1,39 @@
 const MarketItem = require('../models/MarketItem');
 const User = require('../models/User');
-const { deleteFromCloudinary, uploadToCloudinary } = require('../config/cloudinary');
-const creditsConfig = require('../config/credits');
+const { deleteFromCloudinary } = require('../config/cloudinary');
 
-// Utility to escape user input for use in RegExp
-function escapeRegExp(string) {
-	return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Pricing Formula constants
+const CREDIT_COST = {
+	IMAGE_BASE: 10,
+	IMAGE_INCREMENT: 2.5,
+	VIDEO_BASE: 20,
+	VIDEO_INCREMENT: 5,
+	PRICE_DIVISOR_NGN: 100,
+	PRICE_RATE: 0.5,
+	MAX_CREDIT_CHARGE_PER_LISTING: 100,
+};
+
+function stepCost(count, base, increment) {
+	if (count <= 0) return 0;
+	return base + (count - 1) * increment;
+}
+
+function calculateListingCost(imageCount, videoCount, priceNgn) {
+	const imageCost = stepCost(imageCount, CREDIT_COST.IMAGE_BASE, CREDIT_COST.IMAGE_INCREMENT);
+	const videoCost = stepCost(videoCount, CREDIT_COST.VIDEO_BASE, CREDIT_COST.VIDEO_INCREMENT);
+	const priceCost = (priceNgn / CREDIT_COST.PRICE_DIVISOR_NGN) * CREDIT_COST.PRICE_RATE;
+
+	const rawTotal = imageCost + videoCost + priceCost;
+	const finalCost = Math.min(rawTotal, CREDIT_COST.MAX_CREDIT_CHARGE_PER_LISTING);
+
+	return {
+		imageCost,
+		videoCost,
+		priceCost,
+		rawTotal,
+		finalCost,
+		capped: rawTotal > CREDIT_COST.MAX_CREDIT_CHARGE_PER_LISTING,
+	};
 }
 
 // List market items with pagination and filters
@@ -15,19 +43,13 @@ exports.listMarketItems = async (req, res) => {
 		const limit = parseInt(req.query.limit, 10) || 12;
 		const skip = (page - 1) * limit;
 
-		const filter = { status: { $ne: 'deleted' } };
+		const filter = { status: 'active' };
 
+		if (req.query.sellerId) filter.sellerId = req.query.sellerId;
 		if (req.query.category) filter.category = req.query.category;
-		if (req.query.school) filter.school = req.query.school;
-		if (req.query.minPrice) filter['price.amount'] = { ...(filter['price.amount'] || {}), $gte: Number(req.query.minPrice) };
-		if (req.query.maxPrice) filter['price.amount'] = { ...(filter['price.amount'] || {}), $lte: Number(req.query.maxPrice) };
-		// Support case-insensitive exact matching for tag (handles different casings/whitespace)
-		if (req.query.tag) {
-			const t = String(req.query.tag || '').trim();
-			if (t.length > 0) {
-				filter.tags = { $regex: new RegExp('^' + escapeRegExp(t) + '$', 'i') };
-			}
-		}
+		if (req.query.school || req.query.campus) filter.campus = req.query.school || req.query.campus;
+		if (req.query.minPrice) filter.price = { ...(filter.price || {}), $gte: Number(req.query.minPrice) };
+		if (req.query.maxPrice) filter.price = { ...(filter.price || {}), $lte: Number(req.query.maxPrice) };
 
 		// Text search
 		if (req.query.search) {
@@ -35,7 +57,7 @@ exports.listMarketItems = async (req, res) => {
 		}
 
 		const [items, total] = await Promise.all([
-			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('owner', 'name avatar school role username'),
+			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('sellerId', 'name avatar school role username'),
 			MarketItem.countDocuments(filter),
 		]);
 
@@ -52,10 +74,10 @@ exports.listMarketItems = async (req, res) => {
 exports.featuredMarketItems = async (req, res) => {
 	try {
 		const limit = Math.min(parseInt(req.query.limit, 10) || 3, 20);
-		const items = await MarketItem.find({ status: { $ne: 'deleted' } })
+		const items = await MarketItem.find({ status: 'active' })
 			.sort({ createdAt: -1 })
 			.limit(limit)
-			.populate('owner', 'name avatar school role username');
+			.populate('sellerId', 'name avatar school role username');
 
 		res.json({ data: items });
 	} catch (err) {
@@ -64,7 +86,7 @@ exports.featuredMarketItems = async (req, res) => {
 	}
 };
 
-// List items belonging to the authenticated user (include deleted)
+// List items belonging to the authenticated user
 exports.listUserMarketItems = async (req, res) => {
 	try {
 		const page = parseInt(req.query.page, 10) || 1;
@@ -73,13 +95,12 @@ exports.listUserMarketItems = async (req, res) => {
 
 		if (!req.user || !req.user._id) return res.status(401).json({ error: 'Authentication required' });
 
-		const filter = { owner: req.user._id }; // include all statuses (active/closed/deleted)
+		const filter = { sellerId: req.user._id };
 
-		// optional status filter if requested (e.g., ?status=deleted)
 		if (req.query.status) filter.status = req.query.status;
 
 		const [items, total] = await Promise.all([
-			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('owner', 'name avatar school role username'),
+			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('sellerId', 'name avatar school role username'),
 			MarketItem.countDocuments(filter),
 		]);
 
@@ -96,8 +117,8 @@ exports.listUserMarketItems = async (req, res) => {
 exports.getMarketItem = async (req, res) => {
 	try {
 		const { id } = req.params;
-		const item = await MarketItem.findById(id).populate('owner', 'name avatar school role username');
-		if (!item || item.status === 'deleted') return res.status(404).json({ error: 'Item not found' });
+		const item = await MarketItem.findById(id).populate('sellerId', 'name avatar school role username');
+		if (!item || item.status === 'removed') return res.status(404).json({ error: 'Item not found' });
 		res.json({ data: item });
 	} catch (err) {
 		console.error('Get market item error:', err);
@@ -115,167 +136,73 @@ exports.createMarketItem = async (req, res) => {
 			title,
 			description,
 			price,
-			images = [],
-			thumbnail,
 			category,
-			contact,
-			tags = [],
-			location = {},
-			school,
+			campus,
+			media = [],
 		} = req.body;
 
-
-		if (!title || !description || !contact.phone || !price || typeof price.amount === 'undefined' || !school) {
-			return res.status(400).json({ error: 'title, description, price, contact and school are required' });
-		}
-		if (contact.phone.length < 8) {
-			return res.status(400).json({ error: 'contact must be a valid phone number' });
+		if (!title || !description || typeof price === 'undefined' || !category || !campus) {
+			return res.status(400).json({ error: 'title, description, price, category and campus are required' });
 		}
 
-		if (images.length < 1) return res.status(400).json({ error: 'Please add atleast one image of the item' });
-
-		if (images && images.length > 2) return res.status(400).json({ error: 'Maximum of 2 images allowed' });
-
-		// If images are provided as base64/data URIs (strings), upload them to Cloudinary
-		const processedImages = [];
-		let thumbnailUrl = null;
-		let thumbnailPublicId = null;
-
-		if (images && images.length) {
-			// Strict policy: if any upload fails, abort the request and return an error.
-			for (const img of images) {
-				if (typeof img === 'string' && img.startsWith && img.startsWith('data:')) {
-					// upload to cloudinary (let upload errors bubble up)
-					const uploadRes = await uploadToCloudinary(img, { folder: 'campus-market', maxSizeMB: 10 });
-					const imageObj = { url: uploadRes.url, publicId: uploadRes.publicId, format: uploadRes.format };
-					processedImages.push(imageObj);
-					if (!thumbnailUrl) {
-						thumbnailUrl = uploadRes.url;
-						thumbnailPublicId = uploadRes.publicId;
-					}
-				} else if (img && typeof img === 'object' && (img.url || img.publicId || img.public_id)) {
-					// already an object (probably uploaded from frontend)
-					// If the object carries a data URI in `url`, upload it instead of persisting the large string into MongoDB
-					if (typeof img.url === 'string' && img.url.startsWith && img.url.startsWith('data:')) {
-						const uploadRes = await uploadToCloudinary(img.url, { folder: 'campus-market' });
-						const imageObj = { url: uploadRes.url, publicId: uploadRes.publicId, format: uploadRes.format };
-						processedImages.push(imageObj);
-						if (!thumbnailUrl) {
-							thumbnailUrl = uploadRes.url;
-							thumbnailPublicId = uploadRes.publicId;
-						}
-					} else {
-						processedImages.push({ url: img.url || img.url, publicId: img.publicId || img.public_id });
-						if (!thumbnailUrl && (img.url || img.publicId || img.public_id)) {
-							thumbnailUrl = img.url || null;
-							thumbnailPublicId = img.publicId || img.public_id || null;
-						}
-					}
-				} else if (typeof img === 'string') {
-					// plain URL string
-					processedImages.push({ url: img });
-					if (!thumbnailUrl) thumbnailUrl = img;
-				} else {
-					// unknown image type - fail strict
-					throw new Error('Invalid image format in request');
-				}
-			}
+		if (media.length < 1) {
+			return res.status(400).json({ error: 'Please add at least one image of the item' });
 		}
 
-		// Normalize tags: ensure array of trimmed non-empty strings and normalize casing
-		let normalizedTags = [];
-		if (Array.isArray(tags)) {
-			normalizedTags = tags.map(t => (typeof t === 'string' ? t.trim() : String(t))).filter(Boolean);
-		} else if (typeof tags === 'string' && tags.trim()) {
-			normalizedTags = tags.split(',').map(t => t.trim()).filter(Boolean);
-		}
-
-		// If the request included a thumbnail data URI (not part of images), upload it too to avoid storing large base64 in DB
-		let finalThumbnail = thumbnail;
-		let finalThumbnailPublicId = thumbnailPublicId;
-		if (typeof finalThumbnail === 'string' && finalThumbnail.startsWith && finalThumbnail.startsWith('data:')) {
-			const up = await uploadToCloudinary(finalThumbnail, { folder: 'campus-market' });
-			finalThumbnail = up.url;
-			finalThumbnailPublicId = up.publicId;
-		}
-
-		// Check if user has sufficient credits
-		const requiredCredits = creditsConfig.costs.itemListing;
 		const user = await User.findById(userId);
-
 		if (!user) {
-			// Cleanup uploaded images
-			for (const img of processedImages) {
-				if (img.publicId) {
-					await deleteFromCloudinary(img.publicId).catch(() => { });
-				}
-			}
 			return res.status(404).json({ error: 'User not found' });
 		}
 
-		if (!user.hasCredits(requiredCredits)) {
-			// Cleanup uploaded images
-			for (const img of processedImages) {
-				if (img.publicId) {
-					await deleteFromCloudinary(img.publicId).catch(() => { });
-				}
-			}
+		// Calculate cost of listing
+		const imageCount = media.filter(m => m.type === 'image').length;
+		const videoCount = media.filter(m => m.type === 'video').length;
+		const costBreakdown = calculateListingCost(imageCount, videoCount, Number(price));
+		const cost = costBreakdown.finalCost;
+
+		// Verify marketCreditBalance
+		if (user.marketCreditBalance < cost) {
 			return res.status(403).json({
-				error: `Insufficient credits. You need ${requiredCredits} credits to create an item listing.`,
-				required: requiredCredits,
-				current: user.credits,
+				error: `Insufficient credits. You need ${cost} credits to create this listing.`,
+				required: cost,
+				current: user.marketCreditBalance,
 				code: 'INSUFFICIENT_CREDITS',
 			});
 		}
 
-		const itemPayload = {
-			title,
-			description,
-			price,
-			images: processedImages,
-			// if client supplied a thumbnail as a data URI it would have been uploaded above when present in images; as a safety, prefer uploaded thumbnailUrl / publicId
-			thumbnail: finalThumbnail || thumbnailUrl || (processedImages[0] && processedImages[0].url) || null,
-			thumbnailPublicId: finalThumbnailPublicId || thumbnailPublicId || (processedImages[0] && processedImages[0].publicId) || null,
-			category,
-			tags: normalizedTags,
-			location,
-			contact,
-			owner: userId,
-			school,
-		};
+		// Atomic deduction of credits
+		const updatedUser = await User.findOneAndUpdate(
+			{ _id: userId, marketCreditBalance: { $gte: cost } },
+			{ $inc: { marketCreditBalance: -cost } },
+			{ new: true }
+		);
 
-		const item = await MarketItem.create(itemPayload);
-
-		// Deduct credits after successful item creation
-		try {
-			await user.deductCredits(
-				requiredCredits,
-				`Item listing: ${title}`,
-				{
-					relatedTo: 'item',
-					relatedId: item._id,
-				}
-			);
-		} catch (creditError) {
-			// If credit deduction fails, delete the item and cleanup images
-			console.error('Credit deduction failed:', creditError);
-
-			for (const img of processedImages) {
-				if (img.publicId) {
-					await deleteFromCloudinary(img.publicId).catch(() => { });
-				}
-			}
-
-			await MarketItem.findByIdAndDelete(item._id);
-
-			return res.status(500).json({
-				error: 'Failed to process credit deduction. Item was not created.',
-			});
+		if (!updatedUser) {
+			return res.status(409).json({ error: 'Credit balance mismatch, please retry' });
 		}
 
+		// Create listing document
+		const item = await MarketItem.create({
+			sellerId: userId,
+			title,
+			description,
+			price: Number(price),
+			category,
+			campus,
+			media: media.map(m => ({
+				cloudinaryPublicId: m.cloudinaryPublicId || m.publicId || m.public_id,
+				secureUrl: m.secureUrl || m.url,
+				type: m.type || 'image',
+			})),
+			status: 'active',
+			creditCostCharged: costBreakdown,
+			sellerTierAtCreation: user.marketSellerTier || 'free',
+		});
+
 		res.status(201).json({
+			success: true,
 			data: item,
-			creditsRemaining: user.credits,
+			creditsRemaining: updatedUser.marketCreditBalance,
 		});
 	} catch (err) {
 		console.error('Create market item error:', err);
@@ -289,90 +216,29 @@ exports.updateMarketItem = async (req, res) => {
 		const { id } = req.params;
 		const user = req.user;
 		const item = await MarketItem.findById(id);
-		// Build updateFields from body but avoid setting undefined values which would
-		// overwrite existing required fields unintentionally.
-		const updateFields = (({ title, description, price, images, thumbnail, category, tags, location, contact, status, school }) => ({ title, description, price, images, thumbnail, category, tags, location, contact, status, school }))(req.body);
+		if (!item || item.status === 'removed') return res.status(404).json({ error: 'Item not found' });
 
-		// Remove keys that are undefined (i.e., not provided) to preserve existing values
-		Object.keys(updateFields).forEach((k) => {
-			if (typeof updateFields[k] === 'undefined') delete updateFields[k];
-		});
-
-		// Normalize tags in update payload if provided
-		if (updateFields.tags) {
-			let newTags = [];
-			if (Array.isArray(updateFields.tags)) {
-				newTags = updateFields.tags.map(t => (typeof t === 'string' ? t.trim() : String(t))).filter(Boolean);
-			} else if (typeof updateFields.tags === 'string' && updateFields.tags.trim()) {
-				newTags = updateFields.tags.split(',').map(t => t.trim()).filter(Boolean);
-			}
-			updateFields.tags = newTags;
-		}
-		if (!item || item.status === 'deleted') return res.status(404).json({ error: 'Item not found' });
-
-		// Only owner or admin/agent can update
-		if (item.owner.toString() !== user._id.toString() && !(user.role === 'admin' || user.role === 'agent')) {
+		// Only owner (sellerId) or admin/agent can update
+		if (item.sellerId.toString() !== user._id.toString() && !(user.role === 'admin' || user.role === 'agent')) {
 			return res.status(403).json({ error: 'Not authorized to update this item' });
 		}
 
-		// Handle nested price merging: only update price if amount provided
-		if (updateFields.price) {
-			const priceUpdate = updateFields.price;
-			if (typeof priceUpdate.amount === 'undefined') {
-				// ignore price update if amount isn't provided to avoid validation errors
-				delete updateFields.price;
-			} else {
-				// merge into existing item.price
-				item.price = Object.assign({}, item.price || {}, priceUpdate);
-				delete updateFields.price;
-			}
+		const { title, description, price, category, campus, media, status } = req.body;
+
+		if (title !== undefined) item.title = title;
+		if (description !== undefined) item.description = description;
+		if (price !== undefined) item.price = Number(price);
+		if (category !== undefined) item.category = category;
+		if (campus !== undefined) item.campus = campus;
+		if (status !== undefined) item.status = status;
+		if (media !== undefined) {
+			item.media = media.map(m => ({
+				cloudinaryPublicId: m.cloudinaryPublicId || m.publicId || m.public_id,
+				secureUrl: m.secureUrl || m.url,
+				type: m.type || 'image',
+			}));
 		}
 
-		// Restrict image updates: only agents or admins may update media.
-		if (updateFields.images && Array.isArray(updateFields.images)) {
-			if (!(user && (user.role === 'admin'))) {
-				// remove media updates from payload for regular users
-				delete updateFields.images;
-				delete updateFields.thumbnail;
-				delete updateFields.thumbnailPublicId;
-			} else {
-				// agent/admin - strict upload policy: any upload failure should abort
-				const newImages = [];
-				for (const img of updateFields.images) {
-					if (typeof img === 'string' && img.startsWith && img.startsWith('data:')) {
-						const uploadRes = await uploadToCloudinary(img, { folder: 'campus-market' });
-						newImages.push({ url: uploadRes.url, publicId: uploadRes.publicId, format: uploadRes.format });
-					} else if (img && typeof img === 'object' && (img.url || img.publicId || img.public_id)) {
-						// If the provided object contains a data URI in url, upload it to avoid embedding large strings
-						if (typeof img.url === 'string' && img.url.startsWith && img.url.startsWith('data:')) {
-							const uploadRes = await uploadToCloudinary(img.url, { folder: 'campus-market' });
-							newImages.push({ url: uploadRes.url, publicId: uploadRes.publicId, format: uploadRes.format });
-						} else {
-							newImages.push({ url: img.url || img.url, publicId: img.publicId || img.public_id });
-						}
-					} else if (typeof img === 'string') {
-						newImages.push({ url: img });
-					} else {
-						throw new Error('Invalid image format in update payload');
-					}
-				}
-				updateFields.images = newImages;
-				if (!updateFields.thumbnail && newImages[0]) {
-					updateFields.thumbnail = newImages[0].url;
-					updateFields.thumbnailPublicId = newImages[0].publicId || null;
-				}
-
-				// If the client provided a thumbnail data URI in the update payload, upload it and replace with cloud URL/publicId
-				if (updateFields.thumbnail && typeof updateFields.thumbnail === 'string' && updateFields.thumbnail.startsWith && updateFields.thumbnail.startsWith('data:')) {
-					const upThumb = await uploadToCloudinary(updateFields.thumbnail, { folder: 'campus-market' });
-					updateFields.thumbnail = upThumb.url;
-					updateFields.thumbnailPublicId = upThumb.publicId;
-				}
-			}
-		}
-
-		// Apply remaining updates
-		Object.assign(item, updateFields);
 		await item.save();
 		res.json({ data: item });
 	} catch (err) {
@@ -381,48 +247,25 @@ exports.updateMarketItem = async (req, res) => {
 	}
 };
 
-// Delete (soft) item
+// Delete item
 exports.deleteMarketItem = async (req, res) => {
 	try {
 		const { id } = req.params;
 		const user = req.user;
-		// HARD delete: permanently remove the document from the database.
-		// Note: this is irreversible. We still enforce the same authorization checks.
 		const item = await MarketItem.findById(id);
 		if (!item) return res.status(404).json({ error: 'Item not found' });
 
-		// Only owner or admin/agent can delete
-		if (item.owner.toString() !== user._id.toString() && !(user.role === 'admin' || user.role === 'agent')) {
+		// Only owner (sellerId) or admin/agent can delete
+		if (item.sellerId.toString() !== user._id.toString() && !(user.role === 'admin' || user.role === 'agent')) {
 			return res.status(403).json({ error: 'Not authorized to delete this item' });
 		}
 
-		// Attempt to delete associated media from Cloudinary if public IDs are available.
-		try {
-			const media = item.images || [];
-			for (const m of media) {
-				try {
-					// m can be an object { url, publicId } or a plain string
-					const publicId = m && (m.publicId || m.public_id || null);
-					if (publicId) {
-						await deleteFromCloudinary(publicId);
-					}
-				} catch (err) {
-					console.warn('Failed to delete media from Cloudinary for item', id, err && err.message ? err.message : err);
-					// continue deleting other media
-				}
+		// Cleanup media from Cloudinary
+		const files = item.media || [];
+		for (const f of files) {
+			if (f.cloudinaryPublicId) {
+				await deleteFromCloudinary(f.cloudinaryPublicId).catch(() => {});
 			}
-			// Also attempt to delete thumbnail public id if present on the item
-			const thumbPublicId = item.thumbnailPublicId || item.thumbnail_public_id || null;
-			if (thumbPublicId) {
-				try {
-					await deleteFromCloudinary(thumbPublicId);
-				} catch (err) {
-					console.warn('Failed to delete thumbnail from Cloudinary for item', id, err && err.message ? err.message : err);
-				}
-			}
-		} catch (e) {
-			console.warn('Media cleanup encountered an error for item', id, e && e.message ? e.message : e);
-			// proceed with deleting the DB record regardless
 		}
 
 		await MarketItem.findByIdAndDelete(id);

@@ -30,7 +30,15 @@ const { preventDuplicateVerification } = require('../middleware/verificationChec
 router.post(
 	'/verify',
 	auth,
-	requireRole('agent'),
+	requireRole('user', 'agent'),
+	preventDuplicateVerification,
+	submitVerification
+);
+
+router.post(
+	'/verification',
+	auth,
+	requireRole('user', 'agent'),
 	preventDuplicateVerification,
 	submitVerification
 );
@@ -39,13 +47,15 @@ router.post(
 	* GET /api/agents/verify/status
 	* Get agent's verification status
 	*/
-router.get('/verify/status', auth, requireRole('agent'), getVerificationStatus);
+router.get('/verify/status', auth, requireRole('user', 'agent'), getVerificationStatus);
+router.get('/verification/status', auth, requireRole('user', 'agent'), getVerificationStatus);
 
 /**
 	* POST /api/agents/verify/upload
 	* Upload verification document
 	*/
-router.post('/verify/upload', auth, requireRole('agent'), uploadVerificationDocument);
+router.post('/verify/upload', auth, requireRole('user', 'agent'), uploadVerificationDocument);
+router.post('/verification/upload', auth, requireRole('user', 'agent'), uploadVerificationDocument);
 
 // ===========================
 // ADMIN ROUTES
