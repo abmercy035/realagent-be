@@ -78,7 +78,6 @@ router.post('/refresh', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log(email, password)
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -88,6 +87,7 @@ router.post('/login', async (req, res) => {
     }
 
     const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+    console.log(user,email, password)
 
     if (!user) {
       return res.status(401).json({
@@ -139,6 +139,8 @@ router.post('/login', async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
 
+    console.log(user, 2)
+
     const tokens = issueTokenPair({
       userId: user._id.toString(),
       globalRole: user.globalRole || (user.role === 'admin' ? 'admin' : 'user'),
@@ -146,6 +148,8 @@ router.post('/login', async (req, res) => {
     });
 
     setAuthCookies(res, tokens);
+
+    console.log(tokens, 3)
 
     res.status(200).json({
       success: true,
