@@ -55,18 +55,10 @@ app.use(cors({
 	credentials: true,
 }));
 
-// Cookie parser — REQUIRED for the dual-token auth system (Google OAuth, refresh, etc.)
-// Without this, req.cookies is always undefined and all cookie-based auth fails.
 app.use(cookieParser());
 
-// ---------------------------------------------------------------------------
-// Webhook routes MUST be mounted BEFORE express.json() because Paystack
-// webhooks need the raw request body for HMAC-SHA512 signature verification.
-// express.json() consumes the stream, making raw body capture impossible.
-// We mount a lightweight raw-body capture for just the webhook path.
-// ---------------------------------------------------------------------------
+
 app.use('/api/webhooks', express.raw({ type: 'application/json', limit: '1mb' }), (req, res, next) => {
-	// Store raw body for signature verification, then parse for downstream handlers
 	if (req.body && Buffer.isBuffer(req.body)) {
 		req.rawBody = req.body.toString('utf-8');
 		try {
@@ -77,17 +69,14 @@ app.use('/api/webhooks', express.raw({ type: 'application/json', limit: '1mb' })
 	}
 	next();
 });
-
-// Body parser middleware (for all non-webhook routes)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Logging middleware
 if (process.env.NODE_ENV !== 'production') {
 	app.use(morgan('dev'));
 }
 
-// Health check route
+
 app.get('/health', (req, res) => {
 	res.status(200).json({
 		status: 'success',

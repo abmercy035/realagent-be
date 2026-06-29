@@ -1,15 +1,3 @@
-/**
- * routes/authNew.js
- *
- * NEW auth routes migrated from the Next.js frontend.
- * These use the dual-token (access + refresh) cookie system.
- *
- * Migrated from:
- *   app/api/auth/google/route.ts
- *   app/api/auth/google/callback/route.ts
- *   app/api/auth/refresh/route.ts
- */
-
 const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
@@ -17,12 +5,8 @@ const User = require('../models/User');
 const { issueTokenPair, verifyRefreshToken } = require('../utils/jwt');
 const { sendOTPEmail } = require('../utils/email');
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_OAUTH_CALLBACK_URL = process.env.GOOGLE_OAUTH_CALLBACK_URL;
-const APP_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const APP_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
 
-const OAUTH_STATE_COOKIE = 'campusagent_oauth_state';
 const ACCESS_TOKEN_COOKIE = 'campusagent_access_token';
 const REFRESH_TOKEN_COOKIE = 'campusagent_refresh_token';
 const SESSION_INDICATOR_COOKIE = 'campusagent_session';
@@ -60,151 +44,7 @@ function clearAuthCookies(res) {
   res.clearCookie(SESSION_INDICATOR_COOKIE, { httpOnly: false, ...cookieBase, path: '/' });
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/auth/google — starts the Google OAuth flow
-// ---------------------------------------------------------------------------
-router.get('/google', (req, res) => {
-  if (!GOOGLE_CLIENT_ID || !GOOGLE_OAUTH_CALLBACK_URL) {
-    return res.status(500).json({ status: 'error', message: 'Google OAuth not configured.' });
-  }
-
-  const state = crypto.randomBytes(24).toString('hex');
-
-  const googleAuthUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  googleAuthUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
-  googleAuthUrl.searchParams.set('redirect_uri', GOOGLE_OAUTH_CALLBACK_URL);
-  googleAuthUrl.searchParams.set('response_type', 'code');
-  googleAuthUrl.searchParams.set('scope', 'openid email profile');
-  googleAuthUrl.searchParams.set('state', state);
-  googleAuthUrl.searchParams.set('access_type', 'online');
-  googleAuthUrl.searchParams.set('prompt', 'select_account');
-
-  res.cookie(OAUTH_STATE_COOKIE, state, {
-    httpOnly: true,
-    secure: IS_PROD,
-    sameSite: IS_PROD ? 'none' : 'lax',
-    path: '/api/auth/google',
-    maxAge: 5 * 60 * 1000, // 5 minutes
-  });
-
-  res.redirect(googleAuthUrl.toString());
-});
-
-// ---------------------------------------------------------------------------
-// GET /api/auth/google/callback — Google redirects here after consent
-// ---------------------------------------------------------------------------
-router.get('/google/callback', async (req, res) => {
-  const { code, state: returnedState } = req.query;
-  const storedState = req.cookies?.[OAUTH_STATE_COOKIE];
-
-  if (!returnedState || !storedState || returnedState !== storedState) {
-    return res.redirect(`${APP_URL}/login?error=invalid_state`);
-  }
-
-  if (!code) {
-    return res.redirect(`${APP_URL}/login?error=missing_code`);
-  }
-
-  // Exchange the authorization code for Google's tokens
-  let tokenResponse;
-  try {
-    tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code,
-        client_id: GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri: GOOGLE_OAUTH_CALLBACK_URL,
-        grant_type: 'authorization_code',
-      }),
-    });
-  } catch (err) {
-    console.error('Google token exchange network error:', err);
-    return res.redirect(`${APP_URL}/login?error=token_exchange_failed`);
-  }
-
-  if (!tokenResponse.ok) {
-    console.error('Google token exchange failed');
-    return res.redirect(`${APP_URL}/login?error=token_exchange_failed`);
-  }
-
-  const tokens = await tokenResponse.json();
-
-  // Fetch the Google profile
-  let userInfoResponse;
-  try {
-    userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
-    });
-  } catch (err) {
-    console.error('Google userinfo fetch network error:', err);
-    return res.redirect(`${APP_URL}/login?error=userinfo_failed`);
-  }
-
-  if (!userInfoResponse.ok) {
-    console.error('Google userinfo fetch failed');
-    return res.redirect(`${APP_URL}/login?error=userinfo_failed`);
-  }
-
-  const profile = await userInfoResponse.json();
-
-  // Find or create the user (account linking)
-  let user = await User.findOne({ googleId: profile.sub });
-
-  if (!user) {
-    // Try linking by email
-    user = await User.findOne({ email: profile.email.toLowerCase() });
-    if (user) {
-      user.googleId = profile.sub;
-      if (!user.avatarUrl && profile.picture) {
-        user.avatarUrl = profile.picture;
-        user.avatar = profile.picture;
-      }
-      if (profile.email_verified && !user.emailVerifiedAt) {
-        user.emailVerifiedAt = new Date();
-      }
-      await user.save();
-    } else {
-      // Create new user
-      user = await User.create({
-        email: profile.email.toLowerCase(),
-        googleId: profile.sub,
-        fullName: profile.name,
-        name: profile.name,
-        avatarUrl: profile.picture,
-        avatar: profile.picture,
-        emailVerifiedAt: profile.email_verified ? new Date() : undefined,
-        marketCreditBalance: 200,
-        marketSellerTier: 'free',
-        // No password for Google OAuth users
-      });
-    }
-  }
-
-  // Issue our JWT pair
-  const tokenPair = issueTokenPair({
-    userId: user._id.toString(),
-    globalRole: user.globalRole || (user.role === 'admin' ? 'admin' : 'user'),
-    tokenVersion: user.refreshTokenVersion || 0,
-  });
-
-  setAuthCookies(res, tokenPair);
-
-  // Clear the now-consumed state cookie
-  res.clearCookie(OAUTH_STATE_COOKIE, {
-    httpOnly: true,
-    secure: IS_PROD,
-    sameSite: 'lax',
-    path: '/api/auth/google',
-  });
-
-  res.redirect(`${APP_URL}/dashboard`);
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/auth/refresh — exchanges refresh token for fresh pair
-// ---------------------------------------------------------------------------
+ 
 router.post('/refresh', async (req, res) => {
   const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE];
   if (!refreshToken) {
@@ -234,13 +74,11 @@ router.post('/refresh', async (req, res) => {
   res.status(200).json({ success: true, message: 'Session refreshed.' });
 });
 
-// ---------------------------------------------------------------------------
-// POST /api/auth/login — email/password login (dual-token cookie system)
-// ---------------------------------------------------------------------------
+
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
+    console.log(email, password)
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -329,9 +167,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /api/auth/register — email/password registration (dual-token cookie system)
-// ---------------------------------------------------------------------------
+ 
 router.post('/register', async (req, res) => {
   try {
     const { fullName, email, password } = req.body;
@@ -413,10 +249,7 @@ router.post('/register', async (req, res) => {
     });
   }
 });
-
-// ---------------------------------------------------------------------------
-// POST /api/auth/verify-otp — Verifies 6-digit OTP code and logs user in
-// ---------------------------------------------------------------------------
+ 
 router.post('/verify-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -489,10 +322,7 @@ router.post('/verify-otp', async (req, res) => {
     });
   }
 });
-
-// ---------------------------------------------------------------------------
-// POST /api/auth/resend-otp — Generates and resends a new 6-digit OTP code
-// ---------------------------------------------------------------------------
+ 
 router.post('/resend-otp', async (req, res) => {
   try {
     const { email } = req.body;
@@ -546,9 +376,7 @@ router.post('/resend-otp', async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /api/auth/logout — clears auth cookies (new system)
-// ---------------------------------------------------------------------------
+ 
 router.post('/logout', (req, res) => {
   clearAuthCookies(res);
   res.status(200).json({ success: true, status: 'success', message: 'Logged out successfully.' });
