@@ -44,7 +44,6 @@ exports.listMarketItems = async (req, res) => {
 		const skip = (page - 1) * limit;
 
 		const filter = { status: 'active' };
-
 		if (req.query.sellerId) filter.sellerId = req.query.sellerId;
 		if (req.query.category) filter.category = req.query.category;
 		if (req.query.school || req.query.campus) filter.campus = req.query.school || req.query.campus;
@@ -57,7 +56,7 @@ exports.listMarketItems = async (req, res) => {
 		}
 
 		const [items, total] = await Promise.all([
-			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('sellerId', 'name avatar school role username'),
+			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('sellerId', 'fullName name avatar school role username phone'),
 			MarketItem.countDocuments(filter),
 		]);
 
@@ -77,7 +76,7 @@ exports.featuredMarketItems = async (req, res) => {
 		const items = await MarketItem.find({ status: 'active' })
 			.sort({ createdAt: -1 })
 			.limit(limit)
-			.populate('sellerId', 'name avatar school role username');
+			.populate('sellerId', 'fullName name avatar school role username phone');
 
 		res.json({ data: items });
 	} catch (err) {
@@ -100,7 +99,7 @@ exports.listUserMarketItems = async (req, res) => {
 		if (req.query.status) filter.status = req.query.status;
 
 		const [items, total] = await Promise.all([
-			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('sellerId', 'name avatar school role username'),
+			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('sellerId', 'fullName name avatar school role username phone'),
 			MarketItem.countDocuments(filter),
 		]);
 
@@ -117,7 +116,7 @@ exports.listUserMarketItems = async (req, res) => {
 exports.getMarketItem = async (req, res) => {
 	try {
 		const { id } = req.params;
-		const item = await MarketItem.findById(id).populate('sellerId', 'name avatar school role username');
+		const item = await MarketItem.findById(id).populate('sellerId', 'fullName name avatar school role username phone');
 		if (!item || item.status === 'removed') return res.status(404).json({ error: 'Item not found' });
 		res.json({ data: item });
 	} catch (err) {
@@ -264,7 +263,7 @@ exports.deleteMarketItem = async (req, res) => {
 		const files = item.media || [];
 		for (const f of files) {
 			if (f.cloudinaryPublicId) {
-				await deleteFromCloudinary(f.cloudinaryPublicId).catch(() => {});
+				await deleteFromCloudinary(f.cloudinaryPublicId).catch(() => { });
 			}
 		}
 

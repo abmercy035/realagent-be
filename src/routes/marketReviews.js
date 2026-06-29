@@ -27,21 +27,32 @@ const reviewCreateLimiter = rateLimit({
 router.get('/', async (req, res) => {
   try {
     const { id } = req.params;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
+    const skip = (page - 1) * limit;
 
     const listing = await MarketItem.findOne({ _id: id, status: 'active' }).select('_id').lean();
     if (!listing) {
       return res.status(404).json({ success: false, message: 'Listing not found.' });
     }
 
-    const reviews = await Review.find({ marketListingId: id })
-      .populate('authorId', 'fullName avatarUrl name avatar')
-      .sort({ createdAt: -1 })
-      .lean();
+    const mongoose = require('mongoose');
+    const [reviews, total, stats] = await Promise.all([
+      Review.find({ marketListingId: id })
+        .populate('authorId', 'fullName avatarUrl name avatar')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Review.countDocuments({ marketListingId: id }),
+      Review.aggregate([
+        { $match: { marketListingId: new mongoose.Types.ObjectId(id) } },
+        { $group: { _id: null, avgRating: { $avg: '$rating' } } }
+      ])
+    ]);
 
-    const total = reviews.length;
-    const averageRating = total > 0
-      ? Math.round((reviews.reduce((sum, r) => sum + r.rating, 0) / total) * 10) / 10
-      : 0;
+    const averageRating = stats.length > 0 ? Math.round(stats[0].avgRating * 10) / 10 : 0;
+    const pages = Math.ceil(total / limit) || 1;
 
     const flattened = reviews.map((r) => {
       const author = r.authorId || {};
@@ -60,7 +71,12 @@ router.get('/', async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Reviews fetched.',
-      data: { reviews: flattened, total, averageRating },
+      data: {
+        reviews: flattened,
+        total,
+        averageRating,
+        pagination: { page, limit, total, pages }
+      },
     });
   } catch (error) {
     console.error('Get market reviews error:', error);

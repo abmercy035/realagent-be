@@ -27,8 +27,26 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 
 // CORS configuration
+const allowedOrigins = [
+	process.env.FRONTEND_URL || 'http://localhost:3000',
+	'http://localhost:3001',
+	'http://localhost:3002',
+];
+
 app.use(cors({
-	origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+	origin: (origin, callback) => {
+		// Allow requests with no origin (like mobile apps, curl, postman)
+		if (!origin) return callback(null, true);
+		
+		if (
+			allowedOrigins.includes(origin) || 
+			(process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost:'))
+		) {
+			return callback(null, true);
+		}
+		
+		return callback(new Error('Not allowed by CORS'));
+	},
 	credentials: true,
 }));
 
