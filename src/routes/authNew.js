@@ -31,7 +31,7 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 
 // Cookie helper — mirrors frontend tokens.service.ts
 function setAuthCookies(res, { accessToken, refreshToken }) {
-  const cookieBase = { httpOnly: true, secure: IS_PROD, sameSite: 'lax' };
+  const cookieBase = { httpOnly: true, secure: IS_PROD, sameSite: IS_PROD ? 'none' : 'lax' };
 
   res.cookie(ACCESS_TOKEN_COOKIE, accessToken, {
     ...cookieBase,
@@ -54,7 +54,7 @@ function setAuthCookies(res, { accessToken, refreshToken }) {
 }
 
 function clearAuthCookies(res) {
-  const cookieBase = { httpOnly: true, secure: IS_PROD, sameSite: 'lax' };
+  const cookieBase = { httpOnly: true, secure: IS_PROD, sameSite: IS_PROD ? 'none' : 'lax' };
   res.clearCookie(ACCESS_TOKEN_COOKIE, { ...cookieBase, path: '/' });
   res.clearCookie(REFRESH_TOKEN_COOKIE, { ...cookieBase, path: '/api/auth/refresh' });
   res.clearCookie(SESSION_INDICATOR_COOKIE, { httpOnly: false, ...cookieBase, path: '/' });
@@ -82,7 +82,7 @@ router.get('/google', (req, res) => {
   res.cookie(OAUTH_STATE_COOKIE, state, {
     httpOnly: true,
     secure: IS_PROD,
-    sameSite: 'lax',
+    sameSite: IS_PROD ? 'none' : 'lax',
     path: '/api/auth/google',
     maxAge: 5 * 60 * 1000, // 5 minutes
   });

@@ -40,7 +40,12 @@ app.use(cors({
 		
 		if (
 			allowedOrigins.includes(origin) || 
-			(process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost:'))
+			(process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost:')) ||
+			origin.endsWith('.vercel.app') ||
+			origin.endsWith('campusagent.app') ||
+			origin === 'https://campusagent.app' ||
+			origin === 'https://realagent.vercel.app' ||
+			origin === 'https://campusagent.vercel.app'
 		) {
 			return callback(null, true);
 		}
