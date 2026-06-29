@@ -49,12 +49,12 @@ exports.listMarketItems = async (req, res) => {
 		if (req.query.school || req.query.campus) filter.campus = req.query.school || req.query.campus;
 		if (req.query.minPrice) filter.price = { ...(filter.price || {}), $gte: Number(req.query.minPrice) };
 		if (req.query.maxPrice) filter.price = { ...(filter.price || {}), $lte: Number(req.query.maxPrice) };
-
 		// Text search
 		if (req.query.search) {
 			filter.$text = { $search: req.query.search };
 		}
-
+		console.log(filter)
+		
 		const [items, total] = await Promise.all([
 			MarketItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('sellerId', 'fullName name avatar school role username phone'),
 			MarketItem.countDocuments(filter),

@@ -4,11 +4,27 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const cookieParser = require('cookie-parser');
 const { rateLimit } = require('express-rate-limit');
-
 const app = express();
+const routes = require('./routes');
 
 // Security middleware
 app.use(helmet());
+// CORS configuration
+
+// CORS configuration
+app.use(cors({
+	origin: [
+		process.env.FRONTEND_URL,
+		'https://campusagent.app',
+		'http://localhost:3001',
+	].filter((origin) => Boolean(origin)),
+	credentials: true,
+	methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+	allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+	exposedHeaders: ['Set-Cookie']
+}));
+
+app.use(cookieParser());
 
 // Rate limiting
 const limiter = rateLimit({
@@ -24,39 +40,9 @@ const limiter = rateLimit({
 		code: 'RATE_LIMIT_EXCEEDED',
 	},
 });
+
 app.use('/api', limiter);
-
-// CORS configuration
-const allowedOrigins = [
-	process.env.FRONTEND_URL || 'http://localhost:3000',
-	'http://localhost:3001',
-	'http://localhost:3002',
-];
-
-app.use(cors({
-	origin: (origin, callback) => {
-		// Allow requests with no origin (like mobile apps, curl, postman)
-		if (!origin) return callback(null, true);
-		
-		if (
-			allowedOrigins.includes(origin) || 
-			(process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost:')) ||
-			origin.endsWith('.vercel.app') ||
-			origin.endsWith('campusagent.app') ||
-			origin === 'https://campusagent.app' ||
-			origin === 'https://realagent.vercel.app' ||
-			origin === 'https://campusagent.vercel.app'
-		) {
-			return callback(null, true);
-		}
-		
-		return callback(new Error('Not allowed by CORS'));
-	},
-	credentials: true,
-}));
-
-app.use(cookieParser());
-
+app.use('/api', routes);
 
 app.use('/api/webhooks', express.raw({ type: 'application/json', limit: '1mb' }), (req, res, next) => {
 	if (req.body && Buffer.isBuffer(req.body)) {
@@ -77,17 +63,6 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 
-app.get('/health', (req, res) => {
-	res.status(200).json({
-		status: 'success',
-		message: 'CampusAgent API is running',
-		timestamp: new Date().toISOString(),
-	});
-});
-
-// API routes
-const routes = require('./routes');
-app.use('/api', routes);
 
 // 404 handler
 app.use((req, res) => {
